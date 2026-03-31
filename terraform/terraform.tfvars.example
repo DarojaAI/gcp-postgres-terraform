@@ -1,0 +1,110 @@
+# =============================================================================
+# GCP PostgreSQL Terraform Configuration
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your values.
+# Alternatively, use environment variables (GCP_PROJECT_ID, etc.) or CLI flags.
+
+# =============================================================================
+# Required
+# =============================================================================
+
+project_id = "my-gcp-project"
+instance_name = "my-postgres"
+postgres_db_password = "my-secure-password"
+
+# =============================================================================
+# Region (optional - defaults shown)
+# =============================================================================
+
+region = "us-central1"
+zone = "us-central1-b"
+
+# =============================================================================
+# PostgreSQL Configuration
+# =============================================================================
+
+postgres_version = "15"
+postgres_db_name = "postgres"
+postgres_db_user = "postgres"
+
+# =============================================================================
+# Machine Configuration
+# =============================================================================
+
+machine_type = "e2-micro"
+disk_size_gb = 30
+disk_type = "pd-standard"
+
+# =============================================================================
+# Networking
+# =============================================================================
+
+# Leave empty to create a new VPC, or specify existing VPC name
+# vpc_name = "my-existing-vpc"
+vpc_name = ""
+
+subnet_cidr = "10.8.0.0/24"
+vpc_connector_cidr = "10.8.1.0/28"
+
+# CIDRs allowed to connect to PostgreSQL (empty = VPC only)
+allow_postgres_from_cidrs = []
+
+# CIDRs allowed to SSH (empty = SSH disabled)
+allow_ssh_from_cidrs = []
+
+# Assign external IP for direct internet access
+assign_external_ip = false
+
+# =============================================================================
+# Backup Configuration
+# =============================================================================
+
+enable_backups = true
+# backup_bucket_name = ""  # Auto-generated if empty
+backup_retention_days = 30
+backup_schedule = "0 2 * * *"
+snapshot_retention_days = 30
+
+# =============================================================================
+# Monitoring
+# =============================================================================
+
+enable_monitoring = true
+disk_usage_alert_threshold = 80
+# alert_notification_channels = ["projects/my-project/notificationChannels/123456"]
+
+# =============================================================================
+# PostgreSQL Runtime Configuration
+# =============================================================================
+
+max_connections = 100
+shared_buffers = "256MB"
+work_mem = "4MB"
+maintenance_work_mem = "64MB"
+
+# =============================================================================
+# Extensions
+# =============================================================================
+
+pgvector_enabled = true
+
+# Custom SQL to run on startup (schema creation, extensions, etc.)
+# init_sql = "CREATE EXTENSION IF NOT EXISTS vector; CREATE TABLE my_table (id SERIAL PRIMARY KEY, data TEXT);"
+init_sql = ""
+
+# =============================================================================
+# Advanced
+# =============================================================================
+
+enable_cloud_nat = true
+preemptible = false
+enable_oslogin = true
+
+# =============================================================================
+# Labels (optional)
+# =============================================================================
+
+labels = {
+  # environment = "dev"
+  # application = "my-app"
+}
