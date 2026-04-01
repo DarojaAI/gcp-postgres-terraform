@@ -1,6 +1,6 @@
 # gcp-postgres-terraform
 
-> **Status:** In Progress - Phase 1 (Terraform Extraction)
+> **Status:** Stable — v1.0
 
 Standalone PostgreSQL provisioning for GCP Compute Engine — extracted from [dev-nexus](https://github.com/patelmm79/dev-nexus).
 
@@ -24,42 +24,6 @@ Standalone PostgreSQL provisioning for GCP Compute Engine — extracted from [de
 
 ---
 
-## Quick Start
-
-### Prerequisites
-
-- GCP project with billing enabled
-- `gcloud` CLI authenticated (`gcloud auth application-default login`)
-- Terraform 1.5+
-
-### Install CLI (coming soon)
-
-```bash
-# Not yet built - see Phase 2
-pip install gcp-postgres
-```
-
-### Provision via Terraform directly
-
-```bash
-cd terraform
-
-# Copy and edit config
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your values
-
-# Initialize
-terraform init
-
-# Preview
-terraform plan
-
-# Apply
-terraform apply
-```
-
----
-
 ## Architecture
 
 ```
@@ -73,7 +37,7 @@ terraform apply
 │  │  │  │  PostgreSQL VM (e2-micro)           │   │   │   │
 │  │  │  │  - Ubuntu 22.04                      │   │   │   │
 │  │  │  │  - PostgreSQL 15 + pgvector          │   │   │   │
-│  │  │  │  - Persistent Data Disk (pd-standard) │   │   │   │
+│  │  │  │  - Persistent Data Disk (pd-standard)  │   │   │   │
 │  │  │  └─────────────────────────────────────┘   │   │   │
 │  │  └─────────────────────────────────────────────┘   │   │
 │  │                                                      │   │
@@ -98,12 +62,11 @@ terraform apply
 gcp-postgres-terraform/
 ├── terraform/
 │   ├── versions.tf          # Terraform provider requirements
-│   ├── variables.tf        # All configurable variables
-│   ├── postgres_module.tf   # Core PostgreSQL provisioning
-│   ├── outputs.tf          # Connection info, IPs, etc.
-│   ├── terraform.tfvars.example
+│   ├── variables.tf          # All configurable variables
+│   ├── postgres_module.tf    # Core PostgreSQL provisioning
+│   ├── outputs.tf            # Connection info, IPs, secrets, etc.
 │   └── scripts/
-│       ├── postgres_init.sh  # VM startup script
+│       ├── postgres_init.sh   # VM startup script
 │       └── backup.sh         # Backup cron script
 ├── schema/
 │   └── init.sql             # Base schema (pgvector + minimal)
@@ -115,13 +78,219 @@ gcp-postgres-terraform/
 
 ---
 
+# Integration Guide
+
+This section covers how to integrate `gcp-postgres-terraform` into a consumer application repository (e.g., your app that needs a database).
+
+## Key Design Principles
+
+1. **Modular state** — PostgreSQL terraform state is separate from your application Cloud Run state. You can update the database without touching the app, and vice versa.
+2. **Version pinning** — The module is pinned to a git ref (tag/commit). You control when to update.
+3. **Secret Manager** — Credentials are stored in Secret Manager automatically. Cloud Run accesses them by secret name, not value.
+4. **Schema injection** — Your app schema is injected at provision time via `init_sql`. No manual `psql` step needed on first apply.
+
+## Integration Checklist
+
+### 1. Add the module call
+
+In your terraform directory, add a `postgres.tf` file:
+
+```hcl
+# postgres.tf — PostgreSQL via gcp-postgres-terraform module
+
+module "postgres" {
+  source = "github.com/patelmm79/gcp-postgres-terraform//terraform?ref=v1.0"
+
+  project_id             = var.project_id
+  instance_name         = "my-app-db"           # Unique per deployment
+  postgres_db_name      = var.postgres_db_name   # e.g., "myapp"
+  postgres_db_user      = var.postgres_db_user   # e.g., "myapp_user"
+  postgres_db_password   = var.postgres_db_password
+
+  postgres_version      = "15"
+  machine_type          = "e2-micro"            # FREE tier eligible
+  disk_size_gb          = 30                    # FREE tier eligible
+
+  region                = var.region
+  zone                  = "us-central1-b"
+
+  pgvector_enabled      = true                   # Keep for vector search
+
+  init_sql              = file("${path.module}/../schemas/myapp.sql")
+}
+```
+
+### 2. Add variables
+
+In your `variables.tf` or `postgres.tf`:
+
+```hcl
+variable "postgres_db_name" {
+  description = "PostgreSQL database name"
+  type        = string
+  default     = "myapp"
+}
+
+variable "postgres_db_user" {
+  description = "PostgreSQL database user"
+  type        = string
+  default     = "myapp_user"
+}
+
+variable "postgres_db_password" {
+  description = "PostgreSQL database password"
+  sensitive   = true
+}
+```
+
+### 3. Create app schema
+
+Place your SQL schema in a `schemas/` directory at the root of your terraform:
+
+```
+terraform/
+├── postgres.tf
+├── main.tf           # Cloud Run app
+├── variables.tf
+├── outputs.tf
+└── schemas/
+    └── myapp.sql     # Your app schema
+```
+
+### 4. Connect Cloud Run to PostgreSQL
+
+In your Cloud Run terraform (main.tf), reference the postgres outputs:
+
+```hcl
+# In your Cloud Run container env block:
+env {
+  name  = "DB_HOST"
+  value = module.postgres.internal_ip
+}
+env {
+  name  = "DB_NAME"
+  value = var.postgres_db_name
+}
+env {
+  name  = "DB_USER"
+  value = var.postgres_db_user
+}
+env {
+  name  = "DB_PASSWORD"
+  value = "SECRET_NAME"  # Reference Secret Manager, not raw value
+}
+env {
+  name  = "VPC_CONNECTOR"
+  value = module.postgres.vpc_connector_name
+}
+```
+
+And grant the Cloud Run service account access to the secrets:
+
+```hcl
+# In your main.tf:
+resource "google_secret_manager_secret_iam_member" "db_password" {
+  secret_id = "${var.instance_name}_POSTGRES_PASSWORD"  # Match module's secret naming
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_cloud_run_service.my_app.service_account_email}"
+}
+```
+
+### 5. State file separation (recommended)
+
+Use separate GCS backend prefixes for postgres vs. app:
+
+```hcl
+# backend.tf
+terraform {
+  backend "gcs" {
+    bucket = "my-app-terraform-state"   # Create this once per project
+    prefix = "my-app/postgres"           # Postgres state
+  }
+}
+```
+
+```bash
+# Initialize postgres state:
+terraform init -backend-config="prefix=my-app/postgres"
+
+# Initialize app state (separate prefix):
+terraform init -backend-config="prefix=my-app/cloudrun"
+```
+
+### 6. One-command bootstrap script
+
+Create `setup-terraform-backend.sh` in your terraform directory to create the GCS bucket and run `terraform init`:
+
+```bash
+#!/bin/bash
+set -e
+
+PROJECT_ID="${GCP_PROJECT_ID:-$(gcloud config get-value project)}"
+STATE_BUCKET="my-app-terraform-state-${PROJECT_ID}"
+
+# Create GCS bucket
+gsutil mb -l us-central1 "gs://${STATE_BUCKET}" 2>/dev/null || true
+gsutil versioning set on "gs://${STATE_BUCKET}/"
+
+# Update backend.tf with bucket name
+sed -i "s/my-app-terraform-state/${STATE_BUCKET}/g" backend.tf
+
+# Initialize
+terraform init
+```
+
+---
+
+## Versioning & Updates
+
+The module is pinned to a git tag. To update to a new version:
+
+```bash
+# 1. Check available versions
+git ls-remote --tags https://github.com/patelmm79/gcp-postgres-terraform
+
+# 2. Update the ref in your postgres.tf
+#    Change: ?ref=v1.0  →  ?ref=v1.1
+
+# 3. Pull the new version and review changes
+terraform init -upgrade
+terraform plan
+
+# 4. Apply if satisfied
+terraform apply
+```
+
+**Recommendations:**
+- Use version tags (`?ref=v1.0`) for production — stable, predictable
+- Avoid `?ref=main` in production — can break unexpectedly
+- Test updates in dev/staging before applying to production
+
+---
+
+## Module Outputs Reference
+
+| Output | Description |
+|--------|-------------|
+| `internal_ip` | PostgreSQL host IP (use this for Cloud Run) |
+| `vpc_connector_name` | Set as `VPC_CONNECTOR` env var on Cloud Run |
+| `connection_string_internal` | Full connection string (password redacted) |
+| `psql_command_internal` | Ready-to-use psql command |
+| `secrets` | Map of Secret Manager secret IDs: `password`, `user`, `db`, `host` |
+| `service_account_email` | VM service account — grant Secret Manager access here |
+| `backup_bucket_name` | GCS bucket used for automated backups |
+
+Full reference in `terraform/outputs.tf`.
+
+---
+
 ## Usage Examples
 
 ### Terraform (current)
 
 ```hcl
 module "postgres" {
-  source = "github.com/patelmm79/gcp-postgres-terraform//terraform"
+  source = "github.com/patelmm79/gcp-postgres-terraform//terraform?ref=v1.0"
 
   project_id         = "my-project"
   instance_name      = "my-db"
@@ -166,23 +335,6 @@ trigger_backup({name: "mydb"})
 
 ---
 
-## Connection Info (after terraform apply)
-
-```bash
-# Internal (from within VPC or Cloud Run)
-psql -h <internal_ip> -U <user> -d <database>
-
-# External (if assign_external_ip=true)
-psql -h <external_ip> -U <user> -d <database>
-
-# Get values from terraform output
-terraform output internal_ip
-terraform output connection_string_internal
-terraform output psql_command_internal
-```
-
----
-
 ## Cost (Free Tier Eligible)
 
 | Resource | Configuration | Monthly Est. |
@@ -200,14 +352,12 @@ terraform output psql_command_internal
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| Phase 1 | **In Progress** | Extract & parameterize Terraform |
+| Phase 1 | **Done** | Extract & parameterize Terraform |
 | Phase 2 | Not Started | CLI (`create`, `destroy`, `status`, `connect`, `backup`) |
 | Phase 3 | Not Started | REST API (FastAPI) |
 | Phase 4 | Not Started | MCP Server (AI agent tools) |
 | Phase 5 | Not Started | Schema injection |
 | Phase 6 | Not Started | Testing |
-
-See [docs/superpowers/plans/2026-03-31-gcp-postgres-terraform-extraction-plan.md](docs/superpowers/plans/2026-03-31-gcp-postgres-terraform-extraction-plan.md) for full plan.
 
 ---
 
