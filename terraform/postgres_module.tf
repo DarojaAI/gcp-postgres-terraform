@@ -465,45 +465,52 @@ resource "google_monitoring_dashboard" "postgres" {
     displayName = "PostgreSQL Dashboard - ${var.instance_name}"
     mosaicLayout = {
       columns = 12
-      tiles = [{
-        width  = 6
-        height = 4
-        widget = {
-          title = "CPU Utilization"
-          xyChart = {
-            dataSets = [{
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "metric.type=\"compute.googleapis.com/instance/cpu/utilization\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
-                  aggregation = {
-                    alignmentPeriod  = "60s"
-                    perSeriesAligner = "ALIGN_MEAN"
+      tiles = [
+        {
+          xPos   = 0
+          yPos   = 0
+          width  = 6
+          height = 4
+          widget = {
+            title = "CPU Utilization"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "metric.type=\"compute.googleapis.com/instance/cpu/utilization\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
+                    aggregation = {
+                      alignmentPeriod  = "60s"
+                      perSeriesAligner = "ALIGN_MEAN"
+                    }
                   }
                 }
-              }
-            }]
+              }]
+            }
           }
-        }
-      }, {
-        width  = 6
-        height = 4
-        widget = {
-          title = "Disk Usage"
-          xyChart = {
-            dataSets = [{
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "metric.type=\"agent.googleapis.com/disk/percent_used\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
-                  aggregation = {
-                    alignmentPeriod  = "60s"
-                    perSeriesAligner = "ALIGN_MEAN"
+        },
+        {
+          xPos   = 6
+          yPos   = 0
+          width  = 6
+          height = 4
+          widget = {
+            title = "Disk Usage"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "metric.type=\"agent.googleapis.com/disk/percent_used\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
+                    aggregation = {
+                      alignmentPeriod  = "60s"
+                      perSeriesAligner = "ALIGN_MEAN"
+                    }
                   }
                 }
-              }
-            }]
+              }]
+            }
           }
         }
-      }]
+      ]
     }
   })
 }
