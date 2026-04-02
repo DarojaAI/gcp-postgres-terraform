@@ -58,11 +58,11 @@ DISK_PATH="/dev/$DATA_DISK_DEVICE"
 # Retry logic: disk might not be immediately available during startup
 RETRY_COUNT=0
 MAX_RETRIES=30
-RETRY_DELAY=2
+# RETRY_DELAY passed by Terraform templatefile
 
 while [ ! -b "$DISK_PATH" ] && [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    echo "Disk $DISK_PATH not found (attempt $((RETRY_COUNT+1))/$MAX_RETRIES). Waiting \$$${RETRY_DELAY}s..."
-    sleep \$$${RETRY_DELAY}
+    echo "Disk $DISK_PATH not found (attempt $((RETRY_COUNT+1))/$MAX_RETRIES). Waiting ${retry_delay}s..."
+    sleep ${retry_delay}
     RETRY_COUNT=$((RETRY_COUNT+1))
 done
 
