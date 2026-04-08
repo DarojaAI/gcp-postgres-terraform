@@ -56,6 +56,100 @@ PostgreSQL provisioning for GCP Compute Engine — extracted from [dev-nexus](ht
 
 ---
 
+
+---
+
+## Using as a Git Module
+
+This repo is designed to be consumed as a Terraform git module. Any service repo
+can import the PostgreSQL provisioning by calling it with a git source URL:
+
+```hcl
+module "postgres" {
+  source = "github.com/patelmm79/gcp-postgres-terraform//terraform?ref=v1.11"
+
+  # Required
+  project_id              = "your-gcp-project"
+  postgres_db_password    = "your-password"
+
+  # Optional — all have defaults
+  instance_name           = "rag-pg"
+  postgres_version        = "15"
+  machine_type            = "e2-small"
+  postgres_db_name        = "rag_taxonomy"
+  pgvector_enabled        = true
+  github_actions_enabled  = true
+  github_repo            = "your-org/your-repo"
+}
+```
+
+### Integration Pattern
+
+```
+your-service-repo/
+├── deploy/terraform/          ← your deployment terraform
+│   ├── main.tf               ← calls gcp-postgres-terraform as git module
+│   ├── backend.tf            ← GCS remote state (see create-bucket.sh)
+│   ├── variables.tf           ← your variables
+│   ├── terraform.tfvars      ← your secrets (NOT committed)
+│   └── schemas/              ← your SQL schemas (loaded via init_sql)
+│       └── your_schema.sql
+└── .github/workflows/        ← your CI/CD
+
+gcp-postgres-terraform/       ← source of truth, maintained separately
+└── terraform/               ← the module
+```
+
+### When to Update the Module Ref
+
+Bump `?ref=vX.X` when:
+- You want a bug fix or new feature from gcp-postgres-terraform
+- The module interface changes (new variables, new outputs)
+- Security updates to the PostgreSQL setup
+
+Do NOT update when:
+- Only your service-specific deployment config changes (vars, tfvars, workflows)
+- Only your application code changes
+
+### Tag Version Policy
+
+Tags follow semver (`v1.0`, `v1.11`, `v2.0`). Each tag is a commit on `main`.
+Check available versions:
+
+```bash
+git ls-remote --tags https://github.com/patelmm79/gcp-postgres-terraform.git
+```
+
+### GitHub Actions WIF
+
+When `github_actions_enabled = true`, the module creates:
+- Workload Identity Pool + Provider
+- GitHub Actions service account
+- IAM roles (editor, run.admin, secretmanager.secretAccessor, etc.)
+
+After running `terraform apply`, copy outputs to your service repo's GitHub Actions variables:
+- `WIF_PROVIDER` = `terraform output wif_provider`
+- `WIF_SERVICE_ACCOUNT` = `terraform output wif_service_account`
+
+See [SETUP.md](deploy/terraform/SETUP.md) in a consuming repo for the full workflow.
+
+### Schema Injection
+
+To inject a custom SQL schema on first boot, pass it via `init_sql`:
+
+```hcl
+module "postgres" {
+  source = "github.com/patelmm79/gcp-postgres-terraform//terraform?ref=v1.11"
+  # ...
+  init_sql = file("${path.module}/schemas/your_schema.sql")
+}
+```
+
+The `init_sql` is executed as `psql postgres postgres` on the VM's first startup.
+
+---
+
+
 ## Repository Structure
 
 ```
