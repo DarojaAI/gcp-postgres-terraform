@@ -54,18 +54,38 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
 
 # -----------------------------------------------------------------------------
 # Service Account for GitHub Actions
+# Uses data source to detect existing SA — if found, uses it without creating.
+# This makes the module idempotent when the SA already exists (e.g., shared project).
 # -----------------------------------------------------------------------------
+
+# Try to read existing SA — if it doesn't exist, data source returns empty
+data "google_service_account" "github_actions" {
+  count      = var.github_actions_enabled ? 1 : 0
+  project    = var.project_id
+  account_id = "github-actions-deploy"
+}
+
+# Create SA only if data source found nothing (SA doesn't exist yet)
 resource "google_service_account" "github_actions" {
-  count        = var.github_actions_enabled ? 1 : 0
+  count        = var.github_actions_enabled && length(data.google_service_account.github_actions[*].id) == 0 ? 1 : 0
   project      = var.project_id
   account_id   = "github-actions-deploy"
   display_name = "GitHub Actions - Terraform + Cloud Run Deploy"
   description  = "Service account used by GitHub Actions for CI/CD operations"
 }
 
+# SA to use: existing (data source) OR newly created
+locals {
+  sa_email = var.github_actions_enabled ? (
+    length(google_service_account.github_actions[*].email) > 0
+    ? google_service_account.github_actions[0].email
+    : data.google_service_account.github_actions[0].email
+  ) : ""
+}
+
 resource "google_service_account_iam_member" "github_actions_wif_binding" {
   count              = var.github_actions_enabled ? 1 : 0
-  service_account_id = google_service_account.github_actions[0].name
+  service_account_id = local.sa_email
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_pool[0].name}/attribute.repository/${var.github_repo}"
 }
@@ -77,42 +97,42 @@ resource "google_project_iam_member" "github_actions_editor" {
   count   = var.github_actions_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/editor"
-  member  = "serviceAccount:${google_service_account.github_actions[0].email}"
+  member  = "serviceAccount:${local.sa_email}"
 }
 
 resource "google_project_iam_member" "github_actions_cloud_run" {
   count   = var.github_actions_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/run.admin"
-  member  = "serviceAccount:${google_service_account.github_actions[0].email}"
+  member  = "serviceAccount:${local.sa_email}"
 }
 
 resource "google_project_iam_member" "github_actions_secrets" {
   count   = var.github_actions_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.github_actions[0].email}"
+  member  = "serviceAccount:${local.sa_email}"
 }
 
 resource "google_project_iam_member" "github_actions_artifact_registry" {
   count   = var.github_actions_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/artifactregistry.writer"
-  member  = "serviceAccount:${google_service_account.github_actions[0].email}"
+  member  = "serviceAccount:${local.sa_email}"
 }
 
 resource "google_project_iam_member" "github_actions_compute" {
   count   = var.github_actions_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
-  member  = "serviceAccount:${google_service_account.github_actions[0].email}"
+  member  = "serviceAccount:${local.sa_email}"
 }
 
 resource "google_project_iam_member" "github_actions_storage" {
   count   = var.github_actions_enabled ? 1 : 0
   project = var.project_id
   role    = "roles/storage.admin"
-  member  = "serviceAccount:${google_service_account.github_actions[0].email}"
+  member  = "serviceAccount:${local.sa_email}"
 }
 
 # -----------------------------------------------------------------------------
@@ -125,5 +145,5 @@ output "wif_provider" {
 
 output "wif_service_account" {
   description = "GitHub Actions SA email. Add this as WIF_SERVICE_ACCOUNT in GitHub Actions variables."
-  value       = google_service_account.github_actions[0].email
+  value       = local.sa_email
 }
