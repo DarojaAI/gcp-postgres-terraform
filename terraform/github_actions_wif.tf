@@ -81,11 +81,13 @@ locals {
     ? google_service_account.github_actions[0].email
     : data.google_service_account.github_actions[0].email
   ) : ""
+  # Full resource name for iam_member bindings (email alone doesn't work for iam_member)
+  sa_resource_name = "projects/${var.project_id}/serviceAccounts/${local.sa_email}"
 }
 
 resource "google_service_account_iam_member" "github_actions_wif_binding" {
   count              = var.github_actions_enabled ? 1 : 0
-  service_account_id = local.sa_email
+  service_account_id = local.sa_resource_name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_pool[0].name}/attribute.repository/${var.github_repo}"
 }
