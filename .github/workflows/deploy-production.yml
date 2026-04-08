@@ -176,32 +176,5 @@ jobs:
           echo "✅ Deployment verified!"
 
       - name: Update deployment status
-        if: always()
         run: |
-          if [ "${{ needs.deploy.result }}" == "success" ]; then
-            echo "✅ rag-verifier deployed: ${{ steps.deploy.outputs.service_url }}"
-          else
-            echo "❌ Deployment failed"
-          fi
-
-  # Job 4: Notify on completion
-  notify:
-    name: Send Notifications
-    runs-on: ubuntu-latest
-    needs: [deploy]
-    if: always()
-    steps:
-      - name: Send Discord notification
-        if: vars.DISCORD_WEBHOOK_URL != ''
-        uses: sarisia/actions-status-discord@v1
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          status: ${{ needs.deploy.result }}
-          title: "rag-verifier Deployment"
-          description: |
-            **Environment:** Production
-            **Branch:** ${{ github.ref_name }}
-            **Commit:** ${{ github.sha }}
-            **Status:** ${{ needs.deploy.result == 'success' && '✅ Deployed' || '❌ Failed' }}
-            **Service:** ${{ needs.deploy.outputs.service_url }}
-          color: ${{ needs.deploy.result == 'success' && '0x00ff00' || '0xff0000' }}
+          echo "✅ rag-verifier deployed: ${{ steps.deploy.outputs.service_url }}"
