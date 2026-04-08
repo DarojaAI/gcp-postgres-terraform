@@ -4,22 +4,22 @@
 
 output "instance_name" {
   description = "Name of the PostgreSQL instance"
-  value      = google_compute_instance.postgres.name
+  value       = google_compute_instance.postgres.name
 }
 
 output "project_id" {
   description = "Google Cloud Project ID"
-  value      = var.project_id
+  value       = var.project_id
 }
 
 output "region" {
   description = "Region where PostgreSQL is deployed"
-  value      = var.region
+  value       = var.region
 }
 
 output "zone" {
   description = "Zone where PostgreSQL VM is running"
-  value      = google_compute_instance.postgres.zone
+  value       = google_compute_instance.postgres.zone
 }
 
 # =============================================================================
@@ -217,7 +217,7 @@ output "instance_metadata" {
   value = {
     refresh_credentials = "gcloud auth application-default login"
     ssh_command         = "gcloud compute ssh ${google_compute_instance.postgres.name} --zone=${google_compute_instance.postgres.zone} --project=${var.project_id}"
-    view_logs          = "gcloud logging read 'resource.type=gce_instance AND resource.labels.instance_name=${google_compute_instance.postgres.name}' --project=${var.project_id}"
-    instance_url       = "https://console.cloud.google.com/compute/instancesDetail/zones/${google_compute_instance.postgres.zone}/instances/${google_compute_instance.postgres.name}?project=${var.project_id}"
+    view_logs           = "gcloud logging read 'resource.type=gce_instance AND resource.labels.instance_name=${google_compute_instance.postgres.name}' --project=${var.project_id}"
+    instance_url        = "https://console.cloud.google.com/compute/instancesDetail/zones/${google_compute_instance.postgres.zone}/instances/${google_compute_instance.postgres.name}?project=${var.project_id}"
   }
 }
