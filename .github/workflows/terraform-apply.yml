@@ -1,0 +1,151 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: prod
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  terraform:
+    name: Terraform Apply [${{ inputs.environment }}]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      # On push to main: fully reconcile state against live GCP.
+      # Orphaned state entries from failed prior applies accumulate here;
+      # we remove them before import so terraform import doesn't conflict.
+      - name: Reconcile State
+        if: github.event_name == 'push'
+        env:
+          ENV: "${{ inputs.environment || 'prod' }}"
+          TF_VAR_postgres_db_password: "${{ secrets.PROD_POSTGRES_PASSWORD }}"
+        run: |
+          set -e
+          ENV="${ENV:-prod}"
+          cd terraform
+
+          echo "=== Initializing for $ENV ==="
+          terraform init -backend-config="prefix=gcp-postgres-terraform/${ENV}"
+
+          PROJECT_ID="$(grep "^project_id" "${ENV}.tfvars" | sed -E 's/.*"([^"]+)".*/\1/')"
+          REGION="$(grep "^region" "${ENV}.tfvars" | sed -E 's/.*"([^"]+)".*/\1/')"
+          INSTANCE_NAME="$(grep "^instance_name" "${ENV}.tfvars" | sed -E 's/.*"([^"]+)".*/\1/')"
+          ZONE="${REGION}-b"
+
+          echo "Project: $PROJECT_ID | Region: $REGION | Instance: $INSTANCE_NAME"
+
+          # Remove state entries that conflict with resources that already exist in GCP.
+          # These accumulate from prior failed apply attempts or manual terraform state.
+          echo "=== Cleaning orphaned state entries ==="
+          for addr in \
+            "google_compute_disk.postgres_data[0]" \
+            "google_compute_address.postgres_ip[0]" \
+            "google_compute_address.postgres_external_ip[0]" \
+            "google_storage_bucket.postgres_backups[0]" \
+            "google_secret_manager_secret.postgres_password[0]" \
+            "google_secret_manager_secret.postgres_user[0]" \
+            "google_secret_manager_secret.postgres_db[0]" \
+            "google_secret_manager_secret.postgres_host[0]"; do
+            echo "  Removing state: $addr"
+            terraform state rm "$addr" 2>/dev/null || true
+          done
+
+          echo "=== Importing existing resources ==="
+          run_import() {
+            local addr="$1"; local gcp_id="$2"; local label="$3"
+            echo "  Import: $addr <- $gcp_id"
+            terraform import -var-file="${ENV}.tfvars" -lock=false "$addr" "$gcp_id" && echo "    OK: $label" || echo "    SKIP/FAIL: $label"
+          }
+
+          # Disk
+          run_import "google_compute_disk.postgres_data[0]" \
+            "projects/${PROJECT_ID}/zones/${ZONE}/disks/${INSTANCE_NAME}-postgres-data" \
+            "postgres_data_disk"
+
+          # Static IPs
+          run_import "google_compute_address.postgres_ip[0]" \
+            "projects/${PROJECT_ID}/regions/${REGION}/addresses/${INSTANCE_NAME}-postgres-ip" \
+            "postgres_internal_ip"
+
+          run_import "google_compute_address.postgres_external_ip[0]" \
+            "projects/${PROJECT_ID}/regions/${REGION}/addresses/${INSTANCE_NAME}-postgres-external-ip" \
+            "postgres_external_ip"
+
+          # Backup bucket
+          BUCKET="${INSTANCE_NAME}-postgres-backups-${PROJECT_ID}"
+          run_import "google_storage_bucket.postgres_backups[0]" "$BUCKET" "postgres_backups"
+
+          # Secret Manager secrets
+          for secret in postgres_password postgres_user postgres_db postgres_host; do
+            run_import "google_secret_manager_secret.${secret}[0]" \
+              "projects/${PROJECT_ID}/secrets/${INSTANCE_NAME}_${secret^^}" \
+              "${secret}"
+          done
+
+          echo "=== Import done. Running terraform apply ==="
+
+      # On manual dispatch: just validate + plan (don't apply unexpected changes)
+      - name: Terraform Validate
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ENV: "${{ inputs.environment || 'prod' }}"
+        run: |
+          cd terraform
+          terraform init -backend-config="prefix=gcp-postgres-terraform/${ENV}"
+          terraform validate
+          terraform plan -var-file="${ENV}.tfvars" -no-color
+
+      # On push to main: apply after import
+      - name: Terraform Apply
+        if: github.event_name == 'push'
+        env:
+          ENV: "${{ inputs.environment || 'prod' }}"
+          TF_VAR_postgres_db_password: "${{ secrets.PROD_POSTGRES_PASSWORD }}"
+          TF_VAR_project_id: "${{ vars.PROD_PROJECT_ID }}"
+          TF_VAR_region: "${{ vars.PROD_REGION }}"
+          TF_VAR_instance_name: "${{ vars.PROD_INSTANCE_NAME }}"
+        run: |
+          set -e
+          ENV="${ENV:-prod}"
+          cd terraform
+          terraform apply -var-file="${ENV}.tfvars" -auto-approve -lock=false
+
+      - name: Get PostgreSQL connection info
+        if: github.event_name == 'push'
+        run: |
+          cd terraform
+          terraform init -backend-config="prefix=gcp-postgres-terraform/prod" 2>/dev/null || true
+          echo "internal_ip=$(terraform output -raw internal_ip 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          echo "db_port=$(terraform output -raw connection_port 2>/dev/null || echo '5432')" >> $GITHUB_OUTPUT
