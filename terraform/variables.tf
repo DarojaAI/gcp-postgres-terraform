@@ -308,3 +308,25 @@ variable "enable_oslogin" {
   type        = bool
   default     = true
 }
+
+# =============================================================================
+# GitHub Actions Workload Identity Federation
+# =============================================================================
+
+variable "github_actions_enabled" {
+  description = "Enable GitHub Actions Workload Identity Federation"
+  type        = bool
+  default     = true
+}
+
+variable "github_repo" {
+  description = "GitHub repository name (owner/repo format)"
+  type        = string
+  default     = "patelmm79/gcp-postgres-terraform"
+}
+
+variable "github_owner" {
+  description = "GitHub repository owner (organization or username)"
+  type        = string
+  default     = "patelmm79"
+}
