@@ -356,6 +356,7 @@ resource "google_compute_instance" "postgres" {
   metadata_startup_script = templatefile("${path.module}/scripts/postgres_init.sh", {
     db_name           = var.postgres_db_name
     db_user           = var.postgres_db_user
+    db_password       = var.postgres_db_password
     postgres_version  = var.postgres_version
     backup_bucket     = google_storage_bucket.postgres_backups.name
     data_disk_device  = "sdb"
@@ -364,7 +365,7 @@ resource "google_compute_instance" "postgres" {
     max_connections   = var.max_connections
     shared_buffers    = var.shared_buffers
     work_mem          = var.work_mem
-    maintenance_work_mem = var.maintenance_work_mem
+    maintenance_work_mem = var.maintenance_work_mem,
   })
 
   service_account {

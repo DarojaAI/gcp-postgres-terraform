@@ -16,6 +16,7 @@ set -x
 LOG_FILE="/var/log/postgres-setup.log"
 DB_NAME="${db_name}"
 DB_USER="${db_user}"
+DB_PASSWORD="${db_password}"
 POSTGRES_VERSION="${postgres_version}"
 BACKUP_BUCKET="${backup_bucket}"
 DATA_DISK_DEVICE="${data_disk_device}"
@@ -33,6 +34,7 @@ echo "========================================="
 echo "Timestamp: $(date)"
 echo "DB_NAME: $DB_NAME"
 echo "DB_USER: $DB_USER"
+echo "DB_PASSWORD: [REDACTED]"
 echo "POSTGRES_VERSION: $POSTGRES_VERSION"
 echo "BACKUP_BUCKET: $BACKUP_BUCKET"
 echo "DATA_DISK_DEVICE: /dev/$DATA_DISK_DEVICE"
@@ -281,7 +283,7 @@ done
 # Create database and user
 echo "Creating database and user..."
 sudo -u postgres psql -p "$PGVERSION_NUM" <<SQL
-CREATE USER $DB_USER WITH PASSWORD '$DB_USER';
+CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
 CREATE DATABASE $DB_NAME OWNER $DB_USER;
 GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 \\c $DB_NAME
