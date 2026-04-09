@@ -14,21 +14,25 @@
 
 # Enable required GCP APIs
 resource "google_project_service" "compute" {
+  project            = var.project_id
   service            = "compute.googleapis.com"
   disable_on_destroy = false
 }
 
 resource "google_project_service" "servicenetworking" {
+  project            = var.project_id
   service            = "servicenetworking.googleapis.com"
   disable_on_destroy = false
 }
 
 resource "google_project_service" "vpcaccess" {
+  project            = var.project_id
   service            = "vpcaccess.googleapis.com"
   disable_on_destroy = false
 }
 
 resource "google_project_service" "secretmanager" {
+  project            = var.project_id
   service            = "secretmanager.googleapis.com"
   disable_on_destroy = false
 }
@@ -38,12 +42,14 @@ resource "google_project_service" "secretmanager" {
 # =============================================================================
 
 resource "google_compute_network" "postgres_network" {
+  project                 = var.project_id
   name                    = var.vpc_name != "" ? var.vpc_name : "pg-${var.instance_name}-vpc"
   auto_create_subnetworks = false
   depends_on              = [google_project_service.compute]
 }
 
 resource "google_compute_subnetwork" "postgres_subnet" {
+  project       = var.project_id
   name          = "pg-${var.instance_name}-subnet"
   ip_cidr_range = var.subnet_cidr
   region        = var.region
@@ -61,6 +67,7 @@ resource "google_compute_subnetwork" "postgres_subnet" {
 # =============================================================================
 
 resource "google_compute_firewall" "allow_postgres" {
+  project = var.project_id
   name    = "pg-${var.instance_name}-allow-postgres"
   network = google_compute_network.postgres_network.name
 
@@ -78,6 +85,7 @@ resource "google_compute_firewall" "allow_postgres" {
 }
 
 resource "google_compute_firewall" "allow_ssh" {
+  project = var.project_id
   count   = length(var.allow_ssh_from_cidrs) > 0 ? 1 : 0
   name    = "pg-${var.instance_name}-allow-ssh"
   network = google_compute_network.postgres_network.name
@@ -92,8 +100,9 @@ resource "google_compute_firewall" "allow_ssh" {
 }
 
 resource "google_compute_firewall" "allow_egress" {
-  count  = var.enable_cloud_nat ? 1 : 0
-  name   = "pg-${var.instance_name}-allow-egress"
+  project = var.project_id
+  count   = var.enable_cloud_nat ? 1 : 0
+  name    = "pg-${var.instance_name}-allow-egress"
   network = google_compute_network.postgres_network.name
 
   direction = "EGRESS"
@@ -103,7 +112,7 @@ resource "google_compute_firewall" "allow_egress" {
   }
 
   destination_ranges = ["0.0.0.0/0"]
-  target_tags       = ["postgres-server"]
+  target_tags        = ["postgres-server"]
 }
 
 # =============================================================================
@@ -111,6 +120,7 @@ resource "google_compute_firewall" "allow_egress" {
 # =============================================================================
 
 resource "google_compute_router" "postgres_router" {
+  project = var.project_id
   count   = var.enable_cloud_nat ? 1 : 0
   name    = "pg-${var.instance_name}-router"
   region  = var.region
@@ -120,12 +130,13 @@ resource "google_compute_router" "postgres_router" {
 }
 
 resource "google_compute_router_nat" "postgres_nat" {
-  count  = var.enable_cloud_nat ? 1 : 0
-  name   = "pg-${var.instance_name}-nat"
-  router = google_compute_router.postgres_router[0].name
-  region = var.region
+  project = var.project_id
+  count   = var.enable_cloud_nat ? 1 : 0
+  name    = "pg-${var.instance_name}-nat"
+  router  = google_compute_router.postgres_router[0].name
+  region  = var.region
 
-  nat_ip_allocate_option = "AUTO_ONLY"
+  nat_ip_allocate_option             = "AUTO_ONLY"
   source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
 
   subnetwork {
@@ -144,6 +155,7 @@ resource "google_compute_router_nat" "postgres_nat" {
 # =============================================================================
 
 resource "google_vpc_access_connector" "postgres_connector" {
+  project       = var.project_id
   name          = "pg-${var.instance_name}-connector"
   region        = var.region
   network       = google_compute_network.postgres_network.name
@@ -162,8 +174,9 @@ resource "google_vpc_access_connector" "postgres_connector" {
 # =============================================================================
 
 resource "google_storage_bucket" "postgres_backups" {
-  name     = var.backup_bucket_name != "" ? var.backup_bucket_name : "pg-${var.instance_name}-backups-${var.project_id}"
-  location = var.region
+  project       = var.project_id
+  name          = var.backup_bucket_name != "" ? var.backup_bucket_name : "pg-${var.instance_name}-backups-${var.project_id}"
+  location      = var.region
   force_destroy = true
 
   versioning {
@@ -196,10 +209,11 @@ resource "google_storage_bucket" "postgres_backups" {
 # =============================================================================
 
 resource "google_compute_disk" "postgres_data" {
-  name  = "pg-${var.instance_name}-data"
-  type  = var.disk_type
-  zone  = var.zone
-  size  = var.disk_size_gb
+  project = var.project_id
+  name    = "pg-${var.instance_name}-data"
+  type    = var.disk_type
+  zone    = var.zone
+  size    = var.disk_size_gb
   labels = merge(var.labels, {
     instance = var.instance_name
     type     = "database"
@@ -212,6 +226,7 @@ resource "google_compute_disk" "postgres_data" {
 # =============================================================================
 
 resource "google_compute_address" "postgres_ip" {
+  project      = var.project_id
   name         = "pg-${var.instance_name}-ip"
   address_type = "INTERNAL"
   subnetwork   = google_compute_subnetwork.postgres_subnet.id
@@ -219,6 +234,7 @@ resource "google_compute_address" "postgres_ip" {
 }
 
 resource "google_compute_address" "postgres_external_ip" {
+  project      = var.project_id
   count        = var.assign_external_ip ? 1 : 0
   name         = "pg-${var.instance_name}-external-ip"
   address_type = "EXTERNAL"
@@ -231,6 +247,7 @@ resource "google_compute_address" "postgres_external_ip" {
 # =============================================================================
 
 resource "google_service_account" "postgres_vm" {
+  project      = var.project_id
   account_id   = "pg-${var.instance_name}-vm"
   display_name = "PostgreSQL VM - ${var.instance_name}"
   description  = "Service account for PostgreSQL VM ${var.instance_name}"
@@ -253,6 +270,7 @@ resource "google_storage_bucket_iam_member" "postgres_backup_reader" {
 # =============================================================================
 
 resource "google_secret_manager_secret" "postgres_password" {
+  project   = var.project_id
   secret_id = "${var.instance_name}_POSTGRES_PASSWORD"
   replication {
     auto {}
@@ -266,6 +284,7 @@ resource "google_secret_manager_secret_version" "postgres_password" {
 }
 
 resource "google_secret_manager_secret" "postgres_user" {
+  project   = var.project_id
   secret_id = "${var.instance_name}_POSTGRES_USER"
   replication {
     auto {}
@@ -279,6 +298,7 @@ resource "google_secret_manager_secret_version" "postgres_user" {
 }
 
 resource "google_secret_manager_secret" "postgres_db" {
+  project   = var.project_id
   secret_id = "${var.instance_name}_POSTGRES_DB"
   replication {
     auto {}
@@ -292,6 +312,7 @@ resource "google_secret_manager_secret_version" "postgres_db" {
 }
 
 resource "google_secret_manager_secret" "postgres_host" {
+  project   = var.project_id
   secret_id = "${var.instance_name}_POSTGRES_HOST"
   replication {
     auto {}
@@ -315,6 +336,7 @@ resource "google_secret_manager_secret_iam_member" "postgres_vm_secret_access" {
 # =============================================================================
 
 resource "google_compute_instance" "postgres" {
+  project      = var.project_id
   name         = "pg-${var.instance_name}"
   machine_type = var.machine_type
   zone         = var.zone
@@ -343,8 +365,8 @@ resource "google_compute_instance" "postgres" {
     dynamic "access_config" {
       for_each = var.assign_external_ip ? [1] : []
       content {
-        nat_ip        = google_compute_address.postgres_external_ip[0].address
-        network_tier  = "STANDARD"
+        nat_ip       = google_compute_address.postgres_external_ip[0].address
+        network_tier = "STANDARD"
       }
     }
   }
@@ -354,18 +376,19 @@ resource "google_compute_instance" "postgres" {
   }
 
   metadata_startup_script = templatefile("${path.module}/scripts/postgres_init.sh", {
-    db_name           = var.postgres_db_name
-    db_user           = var.postgres_db_user
-    db_password       = var.postgres_db_password
-    postgres_version  = var.postgres_version
-    backup_bucket     = google_storage_bucket.postgres_backups.name
-    data_disk_device  = "sdb"
-    pgvector_enabled  = var.pgvector_enabled
-    init_sql          = var.init_sql
-    max_connections   = var.max_connections
-    shared_buffers    = var.shared_buffers
-    work_mem          = var.work_mem
-    maintenance_work_mem = var.maintenance_work_mem,
+    db_name              = var.postgres_db_name
+    db_user              = var.postgres_db_user
+    db_password          = var.postgres_db_password
+    postgres_version     = var.postgres_version
+    backup_bucket        = google_storage_bucket.postgres_backups.name
+    data_disk_device     = "sdb"
+    pgvector_enabled     = var.pgvector_enabled
+    init_sql             = var.init_sql
+    max_connections      = var.max_connections
+    shared_buffers       = var.shared_buffers
+    work_mem             = var.work_mem
+    maintenance_work_mem = var.maintenance_work_mem
+    retry_delay          = "2"
   })
 
   service_account {
@@ -401,6 +424,8 @@ resource "google_compute_instance" "postgres" {
 # =============================================================================
 
 resource "google_compute_resource_policy" "postgres_snapshot_policy" {
+  project     = var.project_id
+  region      = var.region
   name        = "pg-${var.instance_name}-snapshots"
   description = "Daily snapshots of PostgreSQL data disk"
 
@@ -423,9 +448,10 @@ resource "google_compute_resource_policy" "postgres_snapshot_policy" {
 }
 
 resource "google_compute_disk_resource_policy_attachment" "postgres_snapshots" {
-  name = google_compute_resource_policy.postgres_snapshot_policy.name
-  disk = google_compute_disk.postgres_data.name
-  zone = var.zone
+  project = var.project_id
+  name    = google_compute_resource_policy.postgres_snapshot_policy.name
+  disk    = google_compute_disk.postgres_data.name
+  zone    = var.zone
 }
 
 # =============================================================================
@@ -433,56 +459,65 @@ resource "google_compute_disk_resource_policy_attachment" "postgres_snapshots" {
 # =============================================================================
 
 resource "google_monitoring_dashboard" "postgres" {
-  count = var.enable_monitoring ? 1 : 0
+  project = var.project_id
+  count   = var.enable_monitoring ? 1 : 0
 
   dashboard_json = jsonencode({
     displayName = "PostgreSQL Dashboard - ${var.instance_name}"
     mosaicLayout = {
       columns = 12
-      tiles = [{
-        width  = 6
-        height = 4
-        widget = {
-          title = "CPU Utilization"
-          xyChart = {
-            dataSets = [{
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "metric.type=\"compute.googleapis.com/instance/cpu/utilization\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
-                  aggregation = {
-                    alignmentPeriod  = "60s"
-                    perSeriesAligner = "ALIGN_MEAN"
+      tiles = [
+        {
+          xPos   = 0
+          yPos   = 0
+          width  = 6
+          height = 4
+          widget = {
+            title = "CPU Utilization"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "metric.type=\"compute.googleapis.com/instance/cpu/utilization\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
+                    aggregation = {
+                      alignmentPeriod  = "60s"
+                      perSeriesAligner = "ALIGN_MEAN"
+                    }
                   }
                 }
-              }
-            }]
+              }]
+            }
           }
-        }
-      }, {
-        width  = 6
-        height = 4
-        widget = {
-          title = "Disk Usage"
-          xyChart = {
-            dataSets = [{
-              timeSeriesQuery = {
-                timeSeriesFilter = {
-                  filter = "metric.type=\"agent.googleapis.com/disk/percent_used\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
-                  aggregation = {
-                    alignmentPeriod  = "60s"
-                    perSeriesAligner = "ALIGN_MEAN"
+        },
+        {
+          xPos   = 6
+          yPos   = 0
+          width  = 6
+          height = 4
+          widget = {
+            title = "Disk Usage"
+            xyChart = {
+              dataSets = [{
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "metric.type=\"agent.googleapis.com/disk/percent_used\" AND resource.type=\"gce_instance\" AND resource.labels.instance_id=\"${google_compute_instance.postgres.instance_id}\""
+                    aggregation = {
+                      alignmentPeriod  = "60s"
+                      perSeriesAligner = "ALIGN_MEAN"
+                    }
                   }
                 }
-              }
-            }]
+              }]
+            }
           }
         }
-      }]
+      ]
     }
   })
 }
 
 resource "google_monitoring_alert_policy" "postgres_disk_usage" {
+  project      = var.project_id
   count        = var.enable_monitoring && length(var.alert_notification_channels) > 0 ? 1 : 0
   display_name = "PostgreSQL Disk Usage High - ${var.instance_name}"
   combiner     = "OR"

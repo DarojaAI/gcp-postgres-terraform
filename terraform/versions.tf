@@ -11,10 +11,5 @@ terraform {
   }
 }
 
-# Provider configuration (project/region set via CLI or environment variables)
-provider "google" {
-  # project and region can be set via:
-  # - environment variables: GCP_PROJECT_ID, GCP_REGION
-  # - CLI flags: -var="project_id=..."
-  # - terraform.tfvars file
-}
+# Note: Provider is configured by the consuming module.
+# The consuming application's main.tf should configure the Google provider.

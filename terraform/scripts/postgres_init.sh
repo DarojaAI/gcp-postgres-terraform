@@ -60,11 +60,11 @@ DISK_PATH="/dev/$DATA_DISK_DEVICE"
 # Retry logic: disk might not be immediately available during startup
 RETRY_COUNT=0
 MAX_RETRIES=30
-RETRY_DELAY=2
+# RETRY_DELAY passed by Terraform templatefile
 
 while [ ! -b "$DISK_PATH" ] && [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    echo "Disk $DISK_PATH not found (attempt $((RETRY_COUNT+1))/$MAX_RETRIES). Waiting ${RETRY_DELAY}s..."
-    sleep $RETRY_DELAY
+    echo "Disk $DISK_PATH not found (attempt $((RETRY_COUNT+1))/$MAX_RETRIES). Waiting ${retry_delay}s..."
+    sleep ${retry_delay}
     RETRY_COUNT=$((RETRY_COUNT+1))
 done
 
@@ -102,12 +102,12 @@ echo ""
 echo "===== Step 3: Install PostgreSQL $POSTGRES_VERSION ====="
 
 apt-get update
-apt-get install -y "postgresql-${POSTGRES_VERSION}" "postgresql-contrib-${POSTGRES_VERSION}" || {
+apt-get install -y "postgresql-$$${POSTGRES_VERSION}" "postgresql-contrib-$$${POSTGRES_VERSION}" || {
     # Fallback: try PostgreSQL official repo
     sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
     apt-get update
-    apt-get install -y "postgresql-${POSTGRES_VERSION}" "postgresql-contrib-${POSTGRES_VERSION}"
+    apt-get install -y "postgresql-$$${POSTGRES_VERSION}" "postgresql-contrib-$$${POSTGRES_VERSION}"
 }
 
 if ! command -v psql &> /dev/null; then
@@ -126,7 +126,7 @@ echo "===== Step 4: Install pgvector Extension ====="
 
 if [ "$PGVECTOR_ENABLED" = "true" ]; then
     apt-get update
-    apt-get install -y "postgresql-${POSTGRES_VERSION}-pgvector"
+    apt-get install -y "postgresql-$$${POSTGRES_VERSION}-pgvector"
     systemctl restart postgresql
     sleep 2
 
@@ -180,8 +180,8 @@ PG_CONF="/etc/postgresql/$PGVERSION_NUM/main/postgresql.conf"
 PG_HBA="/etc/postgresql/$PGVERSION_NUM/main/pg_hba.conf"
 
 # Backup originals
-[ -f "$PG_CONF" ] && cp "$PG_CONF" "${PG_CONF}.backup"
-[ -f "$PG_HBA" ] && cp "$PG_HBA" "${PG_HBA}.backup"
+[ -f "$PG_CONF" ] && cp "$PG_CONF" "$$${PG_CONF}.backup"
+[ -f "$PG_HBA" ] && cp "$PG_HBA" "$$${PG_HBA}.backup"
 
 # Configure pg_hba.conf
 cat > "$PG_HBA" <<'EOF'
@@ -202,14 +202,14 @@ cat >> "$PG_CONF" <<EOF
 
 # Connection Settings
 listen_addresses = '*'
-max_connections = ${MAX_CONNECTIONS}
+max_connections = $$${MAX_CONNECTIONS}
 superuser_reserved_connections = 3
 
 # Memory Settings
-shared_buffers = ${SHARED_BUFFERS}
+shared_buffers = $$${SHARED_BUFFERS}
 effective_cache_size = 768MB
-maintenance_work_mem = ${MAINTENANCE_WORK_MEM}
-work_mem = ${WORK_MEM}
+maintenance_work_mem = $$${MAINTENANCE_WORK_MEM}
+work_mem = $$${WORK_MEM}
 
 # Write-Ahead Log
 wal_buffers = 8MB
@@ -337,20 +337,20 @@ mkdir -p "$BACKUP_SCRIPT_DIR"
 cat > "$BACKUP_SCRIPT_DIR/backup.sh" <<'BACKUP'
 #!/bin/bash
 set -e
-BACKUP_BUCKET="${BACKUP_BUCKET}"
-DB_NAME="${DB_NAME}"
-DB_USER="${DB_USER}"
+BACKUP_BUCKET="$$${BACKUP_BUCKET}"
+DB_NAME="$$${DB_NAME}"
+DB_USER="$$${DB_USER}"
 BACKUP_DATE=$(date +%Y-%m-%d_%H-%M-%S)
-BACKUP_FILE="pgbackup_${DB_NAME}_${BACKUP_DATE}.sql.gz"
+BACKUP_FILE="pgbackup_$$${DB_NAME}_$$${BACKUP_DATE}.sql.gz"
 PGVERSION=$(pg_lsclusters -h | awk '{print $1}' | head -1)
 
-echo "Starting PostgreSQL backup to gs://${BACKUP_BUCKET}..."
+echo "Starting PostgreSQL backup to gs://$$${BACKUP_BUCKET}..."
 
-sudo -u postgres pg_dump -p "$PGVERSION" -d ${DB_NAME} | gzip > /tmp/${BACKUP_FILE}
-gsutil cp /tmp/${BACKUP_FILE} gs://${BACKUP_BUCKET}/${BACKUP_FILE}
-rm -f /tmp/${BACKUP_FILE}
+sudo -u postgres pg_dump -p "$PGVERSION" -d $$${DB_NAME} | gzip > /tmp/$$${BACKUP_FILE}
+gsutil cp /tmp/$$${BACKUP_FILE} gs://$$${BACKUP_BUCKET}/$$${BACKUP_FILE}
+rm -f /tmp/$$${BACKUP_FILE}
 
-echo "Backup complete: gs://${BACKUP_BUCKET}/${BACKUP_FILE}"
+echo "Backup complete: gs://$$${BACKUP_BUCKET}/$$${BACKUP_FILE}"
 BACKUP
 
 chmod +x "$BACKUP_SCRIPT_DIR/backup.sh"

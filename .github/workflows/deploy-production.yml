@@ -1,0 +1,180 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'cloudbuild.yaml'
+      - 'Dockerfile'
+      - '.github/workflows/deploy-production.yml'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag (default: GitHub SHA)"
+        required: false
+        type: string
+
+env:
+  REGION: us-central1
+  SERVICE_NAME: rag-verifier
+  REPO: us-central1-docker.pkg.dev/${{ vars.PROD_PROJECT_ID }}/rag-verifier
+
+jobs:
+  # Job 1: Provision or retrieve PostgreSQL connection info from Terraform
+  postgres-info:
+    name: Get PostgreSQL Connection Info
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      internal_ip: ${{ steps.tf.outputs.internal_ip }}
+      db_port: ${{ steps.tf.outputs.db_port }}
+      db_name: ${{ steps.tf.outputs.db_name }}
+      db_user: ${{ steps.tf.outputs.db_user }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Read Terraform Outputs
+        id: tf
+        env:
+          TF_VAR_postgres_db_password: "${{ secrets.PROD_POSTGRES_PASSWORD }}"
+        run: |
+          cd terraform
+          terraform init -backend-config="prefix=gcp-postgres-terraform/prod"
+          echo "internal_ip=$(terraform output -raw internal_ip 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          echo "db_port=$(terraform output -raw connection_port 2>/dev/null || echo '5432')" >> $GITHUB_OUTPUT
+          echo "db_name=$(terraform output -raw connection_dbname 2>/dev/null || echo 'postgres')" >> $GITHUB_OUTPUT
+          echo "db_user=$(terraform output -raw connection_user 2>/dev/null || echo 'postgres')" >> $GITHUB_OUTPUT
+
+  # Job 2: Build and push Docker image via Cloud Build
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    environment: prod
+    needs: postgres-info
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" --quiet
+
+      - name: Get short SHA
+        id: vars
+        run: echo "SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Build and Push to GCR
+        id: build
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+        run: |
+          IMAGE="${{ env.REPO }}:${{ env.IMAGE_TAG }}"
+          gcloud builds submit \
+            --tag "$IMAGE" \
+            --timeout 10m \
+            --machine-type E2_HIGHCPU_8 \
+            --project ${{ vars.PROD_PROJECT_ID }}
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "Built: $IMAGE"
+
+  # Job 3: Deploy to Cloud Run
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    environment: prod
+    needs: [postgres-info, build]
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      service_url: ${{ steps.deploy.outputs.service_url }}
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+        run: |
+          # Update the service with new image and environment variables
+          # Uses Cloud Run revision management — creates new revision, shifts traffic
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image "$IMAGE" \
+            --region=${{ env.REGION }} \
+            --project=${{ vars.PROD_PROJECT_ID }} \
+            --no-cpu-throttling \
+            --min-instances=0 \
+            --max-instances=10 \
+            --concurrency=80 \
+            --timeout=300 \
+            --memory=2Gi \
+            --cpu=2 \
+            --set-env-vars="POSTGRES_HOST=${{ needs.postgres-info.outputs.internal_ip }}" \
+            --set-env-vars="POSTGRES_PORT=${{ needs.postgres-info.outputs.db_port }}" \
+            --set-env-vars="POSTGRES_DB=${{ needs.postgres-info.outputs.db_name }}" \
+            --set-env-vars="POSTGRES_USER=${{ needs.postgres-info.outputs.db_user }}" \
+            --set-secrets="POSTGRES_PASSWORD=${{ vars.PROD_INSTANCE_NAME }}_POSTGRES_PASSWORD:latest" \
+            --vpc-connector=${{ vars.PROD_VPC_CONNECTOR }} \
+            --vpc-egress=all-traffic \
+            --allow-unauthenticated
+
+          # Wait for new revision to be ready
+          echo "Waiting for revision to be ready..."
+          for i in $(seq 1 30); do
+            READY=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+              --region=${{ env.REGION }} \
+              --format="value(status.conditions[0].status)")
+            if [ "$READY" == "True" ]; then
+              echo "Revision ready!"
+              break
+            fi
+            echo "Waiting... ($i/30) - ready=$READY"
+            sleep 10
+          done
+
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --format="value(status.url)")
+          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+
+      - name: Verify deployment
+        run: |
+          SERVICE_URL="${{ steps.deploy.outputs.service_url }}"
+          echo "Testing health endpoint..."
+          curl -sf "$SERVICE_URL/health" || exit 1
+          echo "✅ Deployment verified!"
+
+      - name: Update deployment status
+        run: |
+          echo "✅ rag-verifier deployed: ${{ steps.deploy.outputs.service_url }}"
