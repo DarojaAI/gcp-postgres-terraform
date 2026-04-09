@@ -46,8 +46,12 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
-  # Note: no attribute_condition — access is restricted by the IAM binding on the
-  # service account (principalSet://.../attribute.repository/<repo>), not the provider.
+
+  # Explicitly set to empty string to suppress GCP's auto-generated attribute_condition,
+  # which would otherwise reference unmapped claims (e.g. attribute.repository) and fail
+  # validation. Access is restricted by the IAM binding on the service account
+  # (principalSet://iam.googleapis.com/.../attribute.repository/<repo>), not the provider.
+  attribute_condition = ""
 }
 
 # -----------------------------------------------------------------------------

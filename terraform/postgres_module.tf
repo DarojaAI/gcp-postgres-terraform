@@ -378,6 +378,7 @@ resource "google_compute_instance" "postgres" {
   metadata_startup_script = templatefile("${path.module}/scripts/postgres_init.sh", {
     db_name              = var.postgres_db_name
     db_user              = var.postgres_db_user
+    db_password          = var.postgres_db_password
     postgres_version     = var.postgres_version
     backup_bucket        = google_storage_bucket.postgres_backups.name
     data_disk_device     = "sdb"
