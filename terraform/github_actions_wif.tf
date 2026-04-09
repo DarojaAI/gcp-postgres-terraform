@@ -51,6 +51,11 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
+
+  # CEL condition restricts access to the specific repository.
+  # attribute.repository is mapped from the OIDC 'repository' claim.
+  # The auto-generated condition (without this) causes 400 errors on some GCP versions.
+  attribute_condition = "attribute.repository == \"${var.github_repo}\""
 }
 
 # -----------------------------------------------------------------------------
