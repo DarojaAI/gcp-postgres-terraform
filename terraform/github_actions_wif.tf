@@ -46,9 +46,8 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
-
-  # Restrict to specific repository using google.subject (contains repo:owner:name:... format)
-  attribute_condition = "google.subject.has(\"repo:${var.github_owner}/${var.github_repo}\")"
+  # Note: no attribute_condition — access is restricted by the IAM binding on the
+  # service account (principalSet://.../attribute.repository/<repo>), not the provider.
 }
 
 # -----------------------------------------------------------------------------
