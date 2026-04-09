@@ -36,26 +36,19 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   display_name                       = "GitHub Actions Provider"
   description                        = "Authenticates GitHub Actions runs from ${var.github_owner}/${var.github_repo}"
 
+  # Only map google.subject — other attribute mappings cause GCP provider to
+  # auto-generate a CEL attribute_condition with bare claim names (no 'attribute.' prefix),
+  # which fails validation. GitHub OIDC token contains: sub, repository, actor, etc.
   attribute_mapping = {
-    # google.subject is the principal identifier — must be a claim that uniquely identifies the caller
-    "google.subject"             = "sub"
-    "attribute.repository"       = "repository"
-    "attribute.repository_owner" = "repository_owner"
-    "attribute.workflow"         = "workflow"
-    "attribute.ref"              = "ref"
-    "attribute.sha"              = "sha"
-    "attribute.actor"            = "actor"
-    # Note: 'environment' is omitted — only present when workflow uses an environment
+    "google.subject" = "sub"
   }
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }
 
-  # CEL condition restricts access to the specific repository.
-  # attribute.repository is mapped from the OIDC 'repository' claim.
-  # The auto-generated condition (without this) causes 400 errors on some GCP versions.
-  attribute_condition = "attribute.repository == \"${var.github_repo}\""
+  # Restrict to specific repository using google.subject (contains repo:owner:name:... format)
+  attribute_condition = "google.subject.has(\"repo:${var.github_owner}/${var.github_repo}\")"
 }
 
 # -----------------------------------------------------------------------------
