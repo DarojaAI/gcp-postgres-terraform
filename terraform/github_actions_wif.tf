@@ -37,14 +37,15 @@ resource "google_iam_workload_identity_pool_provider" "github_provider" {
   description                        = "Authenticates GitHub Actions runs from ${var.github_owner}/${var.github_repo}"
 
   attribute_mapping = {
-    "google.subject"             = "repo"
+    # google.subject is the principal identifier — must be a claim that uniquely identifies the caller
+    "google.subject"             = "sub"
     "attribute.repository"       = "repository"
     "attribute.repository_owner" = "repository_owner"
     "attribute.workflow"         = "workflow"
     "attribute.ref"              = "ref"
     "attribute.sha"              = "sha"
     "attribute.actor"            = "actor"
-    "attribute.environment"      = "environment"
+    # Note: 'environment' is omitted — only present when workflow uses an environment
   }
 
   oidc {
