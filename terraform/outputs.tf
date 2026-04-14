@@ -180,6 +180,27 @@ output "secrets" {
   }
 }
 
+output "secret_names" {
+  description = "Secret Manager secret names (for syncing with application secrets)"
+  value = {
+    password = google_secret_manager_secret.postgres_password.secret_id
+    username = google_secret_manager_secret.postgres_user.secret_id
+    database = google_secret_manager_secret.postgres_db.secret_id
+    host     = google_secret_manager_secret.postgres_host.secret_id
+  }
+  sensitive = false
+}
+
+output "current_secrets" {
+  description = "Current secret values (for verification - do not use in production)"
+  value = {
+    db_name = var.postgres_db_name
+    db_user = var.postgres_db_user
+    db_host = google_compute_address.postgres_ip.address
+  }
+  sensitive = false
+}
+
 # =============================================================================
 # Configuration
 # =============================================================================

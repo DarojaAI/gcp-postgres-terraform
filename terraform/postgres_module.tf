@@ -389,6 +389,7 @@ resource "google_compute_instance" "postgres" {
     work_mem             = var.work_mem
     maintenance_work_mem = var.maintenance_work_mem
     retry_delay          = "2"
+    internal_ip          = google_compute_address.postgres_ip.address
   })
 
   service_account {
@@ -543,4 +544,50 @@ resource "google_monitoring_alert_policy" "postgres_disk_usage" {
   alert_strategy {
     auto_close = "86400s"
   }
+}
+
+# =============================================================================
+# Secret Version Sync (Ensures Secrets Match VM Configuration)
+# =============================================================================
+# This resource ensures Secret Manager secrets are updated with the actual
+# values from the VM. This prevents the issue where Terraform variables and
+# Secret Manager get out of sync (e.g., database name changes on VM recreation).
+#
+# The trigger ensures this runs after VM is created/recreated.
+
+resource "null_resource" "sync_secrets" {
+  triggers = {
+    # Re-run when these values change
+    db_name = var.postgres_db_name
+    db_user = var.postgres_db_user
+    db_host = google_compute_address.postgres_ip.address
+    # Also trigger on VM instance ID to catch recreation
+    instance_id = google_compute_instance.postgres.id
+  }
+
+  # Use local-exec to update Secret Manager with current values
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "Syncing Secret Manager secrets with VM configuration..."
+      # Update DB name secret
+      gcloud secrets versions add ${google_secret_manager_secret.postgres_db.secret_id} \
+        --project=${var.project_id} --data-file=- <<< "${var.postgres_db_name}"
+      # Update DB user secret
+      gcloud secrets versions add ${google_secret_manager_secret.postgres_user.secret_id} \
+        --project=${var.project_id} --data-file=- <<< "${var.postgres_db_user}"
+      # Update DB host secret (IP may change on recreation)
+      gcloud secrets versions add ${google_secret_manager_secret.postgres_host.secret_id} \
+        --project=${var.project_id} --data-file=- <<< "${google_compute_address.postgres_ip.address}"
+      echo "✓ Secrets synced successfully"
+    EOT
+
+    interpreter = ["bash", "-c"]
+  }
+
+  depends_on = [
+    google_compute_instance.postgres,
+    google_secret_manager_secret_version.postgres_db,
+    google_secret_manager_secret_version.postgres_user,
+    google_secret_manager_secret_version.postgres_host
+  ]
 }

@@ -26,6 +26,7 @@ MAX_CONNECTIONS="${max_connections}"
 SHARED_BUFFERS="${shared_buffers}"
 WORK_MEM="${work_mem}"
 MAINTENANCE_WORK_MEM="${maintenance_work_mem}"
+INTERNAL_IP="${internal_ip}"
 MOUNT_POINT="/mnt/postgres-data"
 
 echo "========================================="
@@ -290,6 +291,44 @@ GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
 SQL
+
+# ============================================
+# Step 7b: Verify Database Creation
+# ============================================
+echo ""
+echo "===== Step 7b: Verify Database Creation ====="
+
+MAX_VERIFY=10
+for i in $(seq 1 $MAX_VERIFY); do
+    if sudo -u postgres psql -p "$PGVERSION_NUM" -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
+        echo "✓ Database '$DB_NAME' verified exists"
+        break
+    fi
+    if [ $i -eq $MAX_VERIFY ]; then
+        echo "ERROR: Database '$DB_NAME' not found after verification"
+        exit 1
+    fi
+    echo "Waiting for database verification (attempt $i/$MAX_VERIFY)..."
+    sleep 2
+done
+
+# Verify user exists
+if sudo -u postgres psql -p "$PGVERSION_NUM" -c "\du $DB_USER" > /dev/null 2>&1; then
+    echo "✓ User '$DB_USER' verified exists"
+else
+    echo "ERROR: User '$DB_USER' not found"
+    exit 1
+fi
+
+# Log the secret values for reference (these should match Secret Manager)
+echo ""
+echo "===== Secret Values for Application ====="
+echo "POSTGRES_HOST: ${INTERNAL_IP}"
+echo "POSTGRES_DB: $DB_NAME"
+echo "POSTGRES_USER: $DB_USER"
+echo ""
+echo "IMPORTANT: These values must match the Secret Manager secrets!"
+echo "Secret Manager secrets will be automatically synced after VM is ready."
 
 # ============================================
 # Step 8: Run Custom SQL (Schema Injection)

@@ -147,6 +147,32 @@ module "postgres" {
 
 The `init_sql` is executed as `psql postgres postgres` on the VM's first startup.
 
+### Secret Manager Synchronization
+
+The module automatically keeps Secret Manager secrets in sync with the VM configuration. This prevents the common issue where:
+- Terraform variables define one database name (e.g., `postgres_db_name = "myapp"`)
+- Secret Manager has an outdated value (e.g., `POSTGRES_DB = "oldapp"`)
+- Application fails to connect after VM recreation
+
+**What gets synced:**
+- `POSTGRES_DB` — database name
+- `POSTGRES_USER` — database user
+- `POSTGRES_HOST` — internal IP address (may change on VM recreation)
+
+**When it syncs:**
+- On initial `terraform apply`
+- When VM is recreated (via `terraform taint` or destroy/apply)
+- When Terraform variables change
+
+**Verification:**
+After deployment, verify secrets are synced:
+```bash
+terraform output secret_names
+terraform output current_secrets
+```
+
+Compare the `current_secrets` output with your application's Secret Manager values to confirm they match.
+
 ---
 
 
