@@ -142,9 +142,12 @@ output "pgvector_enabled" {
   value       = var.pgvector_enabled
 }
 
+# Note: pgvector_version can be verified on the VM with:
+# gcloud compute ssh <instance> --zone=<zone> --project=<project> --command="sudo -u postgres psql -c \"SELECT extversion FROM pg_extension WHERE extname = 'vector';\""
 output "pgvector_version" {
-  description = "pgvector extension version (if enabled)"
-  value       = var.pgvector_enabled ? "latest" : null
+  description = "pgvector extension version (verify manually after deployment)"
+  value       = var.pgvector_enabled ? "to be verified on VM" : null
+  # TODO: Add null_resource with remote-exec to verify actual version after VM creation
 }
 
 # =============================================================================

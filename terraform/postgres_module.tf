@@ -566,19 +566,34 @@ resource "null_resource" "sync_secrets" {
   }
 
   # Use local-exec to update Secret Manager with current values
+  # NOTE: Using printf instead of echo/<<< to avoid trailing newline issues
   provisioner "local-exec" {
     command = <<-EOT
       echo "Syncing Secret Manager secrets with VM configuration..."
-      # Update DB name secret
-      gcloud secrets versions add ${google_secret_manager_secret.postgres_db.secret_id} \
-        --project=${var.project_id} --data-file=- <<< "${var.postgres_db_name}"
+      # Update DB name secret - use printf to avoid trailing newline
+      printf '%s' "${var.postgres_db_name}" | gcloud secrets versions add ${google_secret_manager_secret.postgres_db.secret_id} \
+        --project=${var.project_id} --data-file=-
       # Update DB user secret
-      gcloud secrets versions add ${google_secret_manager_secret.postgres_user.secret_id} \
-        --project=${var.project_id} --data-file=- <<< "${var.postgres_db_user}"
+      printf '%s' "${var.postgres_db_user}" | gcloud secrets versions add ${google_secret_manager_secret.postgres_user.secret_id} \
+        --project=${var.project_id} --data-file=-
       # Update DB host secret (IP may change on recreation)
-      gcloud secrets versions add ${google_secret_manager_secret.postgres_host.secret_id} \
-        --project=${var.project_id} --data-file=- <<< "${google_compute_address.postgres_ip.address}"
+      printf '%s' "${google_compute_address.postgres_ip.address}" | gcloud secrets versions add ${google_secret_manager_secret.postgres_host.secret_id} \
+        --project=${var.project_id} --data-file=-
+      # Update DB password secret
+      printf '%s' "${var.postgres_db_password}" | gcloud secrets versions add ${google_secret_manager_secret.postgres_password.secret_id} \
+        --project=${var.project_id} --data-file=-
       echo "✓ Secrets synced successfully"
+
+      # Verify no trailing newlines in secret (validation)
+      echo "Validating secrets..."
+      for secret in ${google_secret_manager_secret.postgres_host.secret_id} ${google_secret_manager_secret.postgres_db.secret_id} ${google_secret_manager_secret.postgres_user.secret_id}; do
+        value=$(gcloud secrets versions access latest --secret="$secret" --project=${var.project_id})
+        if echo "$value" | grep -q $'\n'; then
+          echo "ERROR: Secret $secret contains trailing newline!"
+          exit 1
+        fi
+      done
+      echo "✓ Secret validation passed (no trailing newlines)"
     EOT
 
     interpreter = ["bash", "-c"]
