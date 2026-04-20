@@ -144,7 +144,7 @@ resource "google_project_iam_member" "github_actions_storage" {
 # -----------------------------------------------------------------------------
 output "wif_provider" {
   description = "Full WIF provider resource name. Add this as WIF_PROVIDER in GitHub Actions variables."
-  value       = google_iam_workload_identity_pool_provider.github_provider[0].name
+  value       = var.github_actions_enabled ? google_iam_workload_identity_pool_provider.github_provider[0].name : "disabled"
 }
 
 output "wif_service_account" {
