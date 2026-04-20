@@ -80,7 +80,6 @@ resource "google_compute_subnetwork" "postgres_subnet" {
     metadata             = "INCLUDE_ALL_METADATA"
   }
 
-  depends_on = var.vpc_name != "" ? [] : [google_compute_network.postgres_network[0]]
 }
 
 # Unified references for network and subnet
@@ -155,7 +154,6 @@ resource "google_compute_router" "postgres_router" {
   region  = var.region
   network = local.vpc_id
 
-  depends_on = var.vpc_name != "" ? [] : [google_compute_network.postgres_network[0]]
 }
 
 resource "google_compute_router_nat" "postgres_nat" {
