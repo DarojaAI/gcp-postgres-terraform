@@ -323,7 +323,7 @@ fi
 # Log the secret values for reference (these should match Secret Manager)
 echo ""
 echo "===== Secret Values for Application ====="
-echo "POSTGRES_HOST: ${INTERNAL_IP}"
+echo "POSTGRES_HOST: $$${INTERNAL_IP}"
 echo "POSTGRES_DB: $DB_NAME"
 echo "POSTGRES_USER: $DB_USER"
 echo ""
