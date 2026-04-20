@@ -192,10 +192,7 @@ resource "google_vpc_access_connector" "postgres_connector" {
   min_instances = var.vpc_connector_min_instances
   max_instances = var.vpc_connector_max_instances
 
-  depends_on = [
-    google_project_service.vpcaccess,
-    var.subnet_name != "" ? data.google_compute_subnetwork.existing[0] : google_compute_subnetwork.postgres_subnet[0]
-  ]
+  depends_on = [google_project_service.vpcaccess]
 }
 
 # =============================================================================
