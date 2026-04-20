@@ -390,6 +390,7 @@ resource "google_compute_instance" "postgres" {
     maintenance_work_mem = var.maintenance_work_mem
     retry_delay          = "2"
     internal_ip          = google_compute_address.postgres_ip.address
+    INTERNAL_IP          = google_compute_address.postgres_ip.address
   })
 
   service_account {
