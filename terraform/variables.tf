@@ -126,13 +126,19 @@ variable "disk_type" {
 # =============================================================================
 
 variable "vpc_name" {
-  description = "Name of the VPC network to create (or existing VPC to use)"
+  description = "Name of existing VPC network to use (empty = create new VPC)"
   type        = string
-  default     = "" # Empty = create new VPC
+  default     = ""
+}
+
+variable "subnet_name" {
+  description = "Name of existing subnet to use (empty = create new subnet)"
+  type        = string
+  default     = ""
 }
 
 variable "subnet_cidr" {
-  description = "CIDR range for PostgreSQL subnet (must not overlap with existing VPCs)"
+  description = "CIDR range for PostgreSQL subnet (used only when creating new subnet)"
   type        = string
   default     = "10.8.0.0/24"
 }

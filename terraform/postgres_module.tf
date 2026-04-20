@@ -38,28 +38,57 @@ resource "google_project_service" "secretmanager" {
 }
 
 # =============================================================================
-# VPC Network
+# VPC Network (use existing or create new)
 # =============================================================================
 
+# Data source for existing VPC (when vpc_name is provided)
+data "google_compute_network" "existing" {
+  count  = var.vpc_name != "" ? 1 : 0
+  name   = var.vpc_name
+  project = var.project_id
+}
+
+# Data source for existing subnet (when subnet_name is provided)
+data "google_compute_subnetwork" "existing" {
+  count   = var.subnet_name != "" ? 1 : 0
+  name    = var.subnet_name
+  region  = var.region
+  project = var.project_id
+}
+
+# Create new VPC only if not provided
 resource "google_compute_network" "postgres_network" {
-  project                 = var.project_id
-  name                    = var.vpc_name != "" ? var.vpc_name : "pg-${var.instance_name}-vpc"
+  count                 = var.vpc_name != "" ? 0 : 1
+  project               = var.project_id
+  name                  = "pg-${var.instance_name}-vpc"
   auto_create_subnetworks = false
   depends_on              = [google_project_service.compute]
 }
 
+# Create new subnet only if not provided
 resource "google_compute_subnetwork" "postgres_subnet" {
+  count         = var.subnet_name != "" ? 0 : 1
   project       = var.project_id
   name          = "pg-${var.instance_name}-subnet"
   ip_cidr_range = var.subnet_cidr
   region        = var.region
-  network       = google_compute_network.postgres_network.id
+  network       = var.vpc_name != "" ? data.google_compute_network.existing[0].id : google_compute_network.postgres_network[0].id
 
   log_config {
     aggregation_interval = "INTERVAL_10_MIN"
     flow_sampling        = 0.5
     metadata             = "INCLUDE_ALL_METADATA"
   }
+
+  depends_on = var.vpc_name != "" ? [] : [google_compute_network.postgres_network[0]]
+}
+
+# Unified references for network and subnet
+locals {
+  vpc_id     = var.vpc_name != "" ? data.google_compute_network.existing[0].id : google_compute_network.postgres_network[0].id
+  vpc_name   = var.vpc_name != "" ? var.vpc_name : google_compute_network.postgres_network[0].name
+  subnet_id  = var.subnet_name != "" ? data.google_compute_subnetwork.existing[0].id : google_compute_subnetwork.postgres_subnet[0].id
+  subnet_cidr = var.subnet_name != "" ? data.google_compute_subnetwork.existing[0].ip_cidr_range : var.subnet_cidr
 }
 
 # =============================================================================
@@ -69,7 +98,7 @@ resource "google_compute_subnetwork" "postgres_subnet" {
 resource "google_compute_firewall" "allow_postgres" {
   project = var.project_id
   name    = "pg-${var.instance_name}-allow-postgres"
-  network = google_compute_network.postgres_network.name
+  network = local.vpc_name
 
   allow {
     protocol = "tcp"
@@ -77,7 +106,7 @@ resource "google_compute_firewall" "allow_postgres" {
   }
 
   source_ranges = distinct(concat(
-    [var.subnet_cidr],
+    [local.subnet_cidr],
     var.vpc_connector_cidr != "" ? [var.vpc_connector_cidr] : [],
     var.allow_postgres_from_cidrs
   ))
@@ -88,7 +117,7 @@ resource "google_compute_firewall" "allow_ssh" {
   project = var.project_id
   count   = length(var.allow_ssh_from_cidrs) > 0 ? 1 : 0
   name    = "pg-${var.instance_name}-allow-ssh"
-  network = google_compute_network.postgres_network.name
+  network = local.vpc_name
 
   allow {
     protocol = "tcp"
@@ -103,7 +132,7 @@ resource "google_compute_firewall" "allow_egress" {
   project = var.project_id
   count   = var.enable_cloud_nat ? 1 : 0
   name    = "pg-${var.instance_name}-allow-egress"
-  network = google_compute_network.postgres_network.name
+  network = local.vpc_name
 
   direction = "EGRESS"
 
@@ -121,17 +150,17 @@ resource "google_compute_firewall" "allow_egress" {
 
 resource "google_compute_router" "postgres_router" {
   project = var.project_id
-  count   = var.enable_cloud_nat ? 1 : 0
+  count   = var.enable_cloud_nat && var.vpc_name == "" ? 1 : 0
   name    = "pg-${var.instance_name}-router"
   region  = var.region
-  network = google_compute_network.postgres_network.id
+  network = local.vpc_id
 
-  depends_on = [google_compute_network.postgres_network]
+  depends_on = var.vpc_name != "" ? [] : [google_compute_network.postgres_network[0]]
 }
 
 resource "google_compute_router_nat" "postgres_nat" {
   project = var.project_id
-  count   = var.enable_cloud_nat ? 1 : 0
+  count   = var.enable_cloud_nat && var.vpc_name == "" ? 1 : 0
   name    = "pg-${var.instance_name}-nat"
   router  = google_compute_router.postgres_router[0].name
   region  = var.region
@@ -140,7 +169,7 @@ resource "google_compute_router_nat" "postgres_nat" {
   source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
 
   subnetwork {
-    name                    = google_compute_subnetwork.postgres_subnet.id
+    name                    = local.subnet_id
     source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
   }
 
@@ -153,19 +182,21 @@ resource "google_compute_router_nat" "postgres_nat" {
 # =============================================================================
 # VPC Access Connector (for Cloud Run to PostgreSQL access)
 # =============================================================================
+# Only create if not using existing VPC (to avoid conflicts)
 
 resource "google_vpc_access_connector" "postgres_connector" {
+  count         = var.vpc_name != "" ? 0 : 1
   project       = var.project_id
   name          = "pg-${var.instance_name}-connector"
   region        = var.region
-  network       = google_compute_network.postgres_network.name
+  network       = local.vpc_name
   ip_cidr_range = var.vpc_connector_cidr != "" ? var.vpc_connector_cidr : "10.8.1.0/28"
   min_instances = var.vpc_connector_min_instances
   max_instances = var.vpc_connector_max_instances
 
   depends_on = [
     google_project_service.vpcaccess,
-    google_compute_subnetwork.postgres_subnet
+    var.subnet_name != "" ? data.google_compute_subnetwork.existing[0] : google_compute_subnetwork.postgres_subnet[0]
   ]
 }
 
@@ -229,7 +260,7 @@ resource "google_compute_address" "postgres_ip" {
   project      = var.project_id
   name         = "pg-${var.instance_name}-ip"
   address_type = "INTERNAL"
-  subnetwork   = google_compute_subnetwork.postgres_subnet.id
+  subnetwork   = local.subnet_id
   region       = var.region
 }
 
@@ -359,7 +390,7 @@ resource "google_compute_instance" "postgres" {
   }
 
   network_interface {
-    subnetwork = google_compute_subnetwork.postgres_subnet.id
+    subnetwork = local.subnet_id
     network_ip = google_compute_address.postgres_ip.address
 
     dynamic "access_config" {
@@ -413,10 +444,10 @@ resource "google_compute_instance" "postgres" {
 
   depends_on = [
     google_project_service.compute,
-    google_compute_subnetwork.postgres_subnet,
+    local.subnet_id,
     google_storage_bucket.postgres_backups,
     google_compute_disk.postgres_data,
-    google_vpc_access_connector.postgres_connector
+    google_vpc_access_connector.postgres_connector[0]
   ]
 }
 

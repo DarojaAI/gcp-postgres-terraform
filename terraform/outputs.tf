@@ -7,6 +7,11 @@ output "instance_name" {
   value       = google_compute_instance.postgres.name
 }
 
+output "subnet_id" {
+  description = "ID of the subnet (for Cloud Run connector)"
+  value       = local.subnet_id
+}
+
 output "project_id" {
   description = "Google Cloud Project ID"
   value       = var.project_id
@@ -28,22 +33,22 @@ output "zone" {
 
 output "vpc_network_name" {
   description = "Name of the VPC network"
-  value       = google_compute_network.postgres_network.name
+  value       = local.vpc_name
 }
 
 output "vpc_subnet_name" {
   description = "Name of the VPC subnet"
-  value       = google_compute_subnetwork.postgres_subnet.name
+  value       = var.subnet_name != "" ? var.subnet_name : "pg-${var.instance_name}-subnet"
 }
 
 output "vpc_connector_name" {
   description = "Name of the VPC connector (for Cloud Run access)"
-  value       = google_vpc_access_connector.postgres_connector.name
+  value       = var.vpc_name != "" ? null : google_vpc_access_connector.postgres_connector[0].name
 }
 
 output "vpc_connector_cidr" {
-  description = "CIDR range of the VPC connector"
-  value       = var.vpc_connector_cidr
+  description = "CIDR range of the VPC connector (null when using existing VPC)"
+  value       = var.vpc_name != "" ? null : (var.vpc_connector_cidr != "" ? var.vpc_connector_cidr : "10.8.1.0/28")
 }
 
 # =============================================================================
