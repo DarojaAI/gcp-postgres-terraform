@@ -80,7 +80,7 @@ resource "google_compute_subnetwork" "postgres_subnet" {
     metadata             = "INCLUDE_ALL_METADATA"
   }
 
-  depends_on = var.vpc_name != "" ? [] : [google_compute_network.postgres_network[0]]
+  depends_on = local.postgres_network_deps
 }
 
 # Unified references for network and subnet
@@ -89,6 +89,9 @@ locals {
   vpc_name   = var.vpc_name != "" ? var.vpc_name : google_compute_network.postgres_network[0].name
   subnet_id  = var.subnet_name != "" ? data.google_compute_subnetwork.existing[0].id : google_compute_subnetwork.postgres_subnet[0].id
   subnet_cidr = var.subnet_name != "" ? data.google_compute_subnetwork.existing[0].ip_cidr_range : var.subnet_cidr
+  # depends_on helpers — ternary not allowed in depends_on, so use separate locals
+  postgres_network_deps = var.vpc_name != "" ? [] : [google_compute_network.postgres_network[0]]
+  subnet_dep = var.subnet_name != "" ? data.google_compute_subnetwork.existing[0] : google_compute_subnetwork.postgres_subnet[0]
 }
 
 # =============================================================================
@@ -155,7 +158,7 @@ resource "google_compute_router" "postgres_router" {
   region  = var.region
   network = local.vpc_id
 
-  depends_on = var.vpc_name != "" ? [] : [google_compute_network.postgres_network[0]]
+  depends_on = local.postgres_network_deps
 }
 
 resource "google_compute_router_nat" "postgres_nat" {
@@ -196,7 +199,7 @@ resource "google_vpc_access_connector" "postgres_connector" {
 
   depends_on = [
     google_project_service.vpcaccess,
-    var.subnet_name != "" ? data.google_compute_subnetwork.existing[0] : google_compute_subnetwork.postgres_subnet[0]
+    local.subnet_dep
   ]
 }
 
