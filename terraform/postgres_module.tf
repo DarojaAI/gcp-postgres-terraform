@@ -175,7 +175,7 @@ resource "google_vpc_access_connector" "postgres_connector" {
 
 resource "google_storage_bucket" "postgres_backups" {
   project       = var.project_id
-  name          = var.backup_bucket_name != "" ? var.backup_bucket_name : "pg-${var.instance_name}-backups-${var.project_id}"
+  name          = var.backup_bucket_name != "" ? var.backup_bucket_name : "${var.repo_prefix}-${var.environment}-postgres-backups"
   location      = var.region
   force_destroy = true
 
@@ -271,7 +271,7 @@ resource "google_storage_bucket_iam_member" "postgres_backup_reader" {
 
 resource "google_secret_manager_secret" "postgres_password" {
   project   = var.project_id
-  secret_id = "${var.instance_name}_POSTGRES_PASSWORD"
+  secret_id = "${var.repo_prefix}-${var.environment}-postgres-password"
   replication {
     auto {}
   }
@@ -285,7 +285,7 @@ resource "google_secret_manager_secret_version" "postgres_password" {
 
 resource "google_secret_manager_secret" "postgres_user" {
   project   = var.project_id
-  secret_id = "${var.instance_name}_POSTGRES_USER"
+  secret_id = "${var.repo_prefix}-${var.environment}-postgres-user"
   replication {
     auto {}
   }
@@ -299,7 +299,7 @@ resource "google_secret_manager_secret_version" "postgres_user" {
 
 resource "google_secret_manager_secret" "postgres_db" {
   project   = var.project_id
-  secret_id = "${var.instance_name}_POSTGRES_DB"
+  secret_id = "${var.repo_prefix}-${var.environment}-postgres-db"
   replication {
     auto {}
   }
@@ -313,7 +313,7 @@ resource "google_secret_manager_secret_version" "postgres_db" {
 
 resource "google_secret_manager_secret" "postgres_host" {
   project   = var.project_id
-  secret_id = "${var.instance_name}_POSTGRES_HOST"
+  secret_id = "${var.repo_prefix}-${var.environment}-postgres-host"
   replication {
     auto {}
   }

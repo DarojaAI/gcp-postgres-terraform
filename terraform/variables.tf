@@ -13,8 +13,20 @@ variable "project_id" {
   type        = string
 }
 
+variable "repo_prefix" {
+  description = "Repository/project prefix for resource naming (e.g., rag-research)"
+  type        = string
+  default     = "rag-research"
+}
+
+variable "environment" {
+  description = "Environment name for resource naming (e.g., eai, prod)"
+  type        = string
+  default     = "prod"
+}
+
 variable "instance_name" {
-  description = "Name for this PostgreSQL instance (used as prefix for all resources)"
+  description = "Name for this PostgreSQL instance (used as prefix for instance-specific resources)"
   type        = string
 
   validation {
