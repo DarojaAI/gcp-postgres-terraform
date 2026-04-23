@@ -12,6 +12,25 @@
 # - Monitoring dashboards
 # =============================================================================
 
+# Fetch GitHub Actions runner IP ranges for firewall allowlisting
+# Enables DBT schema validation in CI/CD workflows to connect to PostgreSQL
+data "http" "github_actions_ips" {
+  url = "https://api.github.com/meta"
+  request_headers = {
+    Accept = "application/vnd.github+json"
+  }
+}
+
+# Extract and filter IPv4-only CIDRs from GitHub Actions IPs
+# IPv4 CIDRs look like "13.64.0.0/11" - we aggregate to /16 blocks
+# IPv6 addresses (containing ':') are filtered out as GCP firewall doesn't accept them
+locals {
+  github_actions_ipv4 = [for cidr in jsondecode(data.http.github_actions_ips.response_body).actions :
+    length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
+  ]
+  github_actions_cidrs = distinct(local.github_actions_ipv4)
+}
+
 # Enable required GCP APIs
 resource "google_project_service" "compute" {
   project            = var.project_id
@@ -105,11 +124,18 @@ resource "google_compute_firewall" "allow_postgres" {
     ports    = ["5432"]
   }
 
-  source_ranges = distinct(concat(
+  # Allow connections from:
+  # 1. PostgreSQL subnet (VPC-internal)
+  # 2. VPC connector CIDR (Cloud Run -> PostgreSQL)
+  # 3. GitHub Actions runners (for CI/CD DBT validation)
+  # 4. Extra external sources (if configured)
+  # IPv6 entries are filtered out (empty strings removed by compact)
+  source_ranges = compact(distinct(concat(
     [local.subnet_cidr],
     var.vpc_connector_cidr != "" ? [var.vpc_connector_cidr] : [],
+    local.github_actions_cidrs,
     var.allow_postgres_from_cidrs
-  ))
+  )))
   target_tags = ["postgres-server"]
 }
 
