@@ -323,6 +323,15 @@ resource "google_storage_bucket_iam_member" "postgres_backup_reader" {
   member = "serviceAccount:${google_service_account.postgres_vm.email}"
 }
 
+# Grant GitHub Actions deploy SA read access to backups (for terraform plan refresh).
+# Controlled by var.github_actions_backup_reader_sa — set to the SA email used by GitHub Actions WIF.
+resource "google_storage_bucket_iam_member" "github_actions_backup_reader" {
+  count  = var.github_actions_backup_reader_sa != "" ? 1 : 0
+  bucket = google_storage_bucket.postgres_backups.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${var.github_actions_backup_reader_sa}"
+}
+
 # =============================================================================
 # Secret Manager Secrets for Credentials
 # =============================================================================

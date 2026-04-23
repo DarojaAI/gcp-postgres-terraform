@@ -321,6 +321,12 @@ variable "preemptible" {
   default     = false
 }
 
+variable "github_actions_backup_reader_sa" {
+  description = "GitHub Actions deploy SA email that needs read access to the backup bucket (e.g. github-actions-deploy@<project>.iam.gserviceaccount.com). When empty, no additional IAM grant is created."
+  type        = string
+  default     = ""
+}
+
 variable "enable_oslogin" {
   description = "Enable OS Login for SSH access (alternative to managing SSH keys)"
   type        = bool
