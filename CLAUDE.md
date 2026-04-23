@@ -43,3 +43,35 @@ gcp-postgres-terraform/
 | `pgvector_enabled` | No | `true` | Enable pgvector extension |
 | `github_actions_enabled` | No | `true` | Create WIF for GitHub Actions |
 | `github_repo` | No | `patelmm79/gcp-postgres-terraform` | GitHub repo |
+## Post-Setup Steps (Required for GitHub Actions CI/CD)
+
+When using this module with GitHub Actions + Workload Identity Federation, the SA needs
+one-time bootstrap permissions that terraform plan requires BEFORE it can read bucket state.
+
+### One-Time Bucket IAM Grant
+
+After the first `terraform apply` creates the backup bucket, the GitHub Actions SA must be
+granted `storage.objectViewer` on the bucket so terraform plan can read bucket IAM during
+subsequent plan/apply cycles. This is a bootstrap chicken-and-egg issue.
+
+**Find your bucket name** (matches pattern: `{repo_prefix}-{environment}-postgres-backups`):
+
+```bash
+# Example for repo_prefix=dev-nexus, environment=prod
+BUCKET_NAME="dev-nexus-prod-postgres-backups"
+SA_EMAIL="github-actions-deploy@${PROJECT_ID}.iam.gserviceaccount.com"
+
+gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_NAME}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/storage.objectViewer"
+```
+
+**Why this is not in terraform:** Terraform plan needs to READ the bucket to reconcile
+state — but if the SA doesn't have read permission, plan fails before apply can run.
+The terraform resource `google_storage_bucket_iam_member.github_actions_backup_reader`
+(optionally passed via `github_actions_backup_reader_sa` variable) handles ongoing
+maintenance, but the very first plan needs the bootstrap grant above.
+
+**Recommended:** Add this as a step in your consuming repo's WIF setup script, gated on
+whether a backup bucket is in use (when `github_actions_backup_reader_sa` is passed).
+
