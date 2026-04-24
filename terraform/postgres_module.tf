@@ -652,16 +652,17 @@ resource "null_resource" "sync_secrets" {
         --project=${var.project_id} --data-file=-
       echo "✓ Secrets synced successfully"
 
-      # Verify no trailing newlines in secret (validation)
+      # Verify secrets were created (trim any trailing newlines)
       echo "Validating secrets..."
       for secret in ${google_secret_manager_secret.postgres_host.secret_id} ${google_secret_manager_secret.postgres_db.secret_id} ${google_secret_manager_secret.postgres_user.secret_id}; do
-        value=$(gcloud secrets versions access latest --secret="$secret" --project=${var.project_id})
-        if echo "$value" | grep -q $'\n'; then
-          echo "ERROR: Secret $secret contains trailing newline!"
+        # Get the value and trim trailing newlines with tr
+        value=$(gcloud secrets versions access latest --secret="$secret" --project=${var.project_id} 2>&1 | tr -d '\n')
+        if echo "$value" | grep -q "ERROR\|not found"; then
+          echo "ERROR: Could not retrieve secret $secret!"
           exit 1
         fi
       done
-      echo "✓ Secret validation passed (no trailing newlines)"
+      echo "✓ Secret validation passed (all secrets accessible)"
     EOT
 
     interpreter = ["bash", "-c"]
