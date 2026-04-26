@@ -41,15 +41,8 @@ output "vpc_subnet_name" {
   value       = var.subnet_name != "" ? var.subnet_name : "pg-${var.instance_name}-subnet"
 }
 
-output "vpc_connector_name" {
-  description = "Name of the VPC connector (for Cloud Run access)"
-  value       = var.vpc_name != "" ? null : google_vpc_access_connector.postgres_connector[0].name
-}
-
-output "vpc_connector_cidr" {
-  description = "CIDR range of the VPC connector (null when using existing VPC)"
-  value       = var.vpc_name != "" ? null : (var.vpc_connector_cidr != "" ? var.vpc_connector_cidr : "10.8.1.0/28")
-}
+# VPC Access Connector is now managed by vpc-infra module.
+# Reference its output: module.vpc.vpc_connector_name
 
 # =============================================================================
 # IP Addresses

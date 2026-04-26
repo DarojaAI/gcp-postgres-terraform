@@ -57,57 +57,28 @@ resource "google_project_service" "secretmanager" {
 }
 
 # =============================================================================
-# VPC Network (use existing or create new)
+# VPC Network (created and managed by vpc-infra module)
 # =============================================================================
 
-# Data source for existing VPC (when vpc_name is provided)
-data "google_compute_network" "existing" {
-  count  = var.vpc_name != "" ? 1 : 0
-  name   = var.vpc_name
+# Data source for existing VPC (required, created by vpc-infra)
+data "google_compute_network" "vpc" {
+  name    = var.vpc_name
   project = var.project_id
 }
 
-# Data source for existing subnet (when subnet_name is provided)
-data "google_compute_subnetwork" "existing" {
-  count   = var.subnet_name != "" ? 1 : 0
+# Data source for existing subnet (required, created by vpc-infra)
+data "google_compute_subnetwork" "subnet" {
   name    = var.subnet_name
   region  = var.region
   project = var.project_id
 }
 
-# Create new VPC only if not provided
-resource "google_compute_network" "postgres_network" {
-  count                 = var.vpc_name != "" ? 0 : 1
-  project               = var.project_id
-  name                  = "pg-${var.instance_name}-vpc"
-  auto_create_subnetworks = false
-  depends_on              = [google_project_service.compute]
-}
-
-# Create new subnet only if not provided
-resource "google_compute_subnetwork" "postgres_subnet" {
-  count         = var.subnet_name != "" ? 0 : 1
-  project       = var.project_id
-  name          = "pg-${var.instance_name}-subnet"
-  ip_cidr_range = var.subnet_cidr
-  region        = var.region
-  network       = var.vpc_name != "" ? data.google_compute_network.existing[0].id : google_compute_network.postgres_network[0].id
-
-  log_config {
-    aggregation_interval = "INTERVAL_10_MIN"
-    flow_sampling        = 0.5
-    metadata             = "INCLUDE_ALL_METADATA"
-  }
-
-  depends_on = [google_compute_network.postgres_network]
-}
-
-# Unified references for network and subnet
+# References to VPC resources (created and managed by vpc-infra module)
 locals {
-  vpc_id     = var.vpc_name != "" ? data.google_compute_network.existing[0].id : google_compute_network.postgres_network[0].id
-  vpc_name   = var.vpc_name != "" ? var.vpc_name : google_compute_network.postgres_network[0].name
-  subnet_id  = var.subnet_name != "" ? data.google_compute_subnetwork.existing[0].id : google_compute_subnetwork.postgres_subnet[0].id
-  subnet_cidr = var.subnet_name != "" ? data.google_compute_subnetwork.existing[0].ip_cidr_range : var.subnet_cidr
+  vpc_id      = data.google_compute_network.vpc.id
+  vpc_name    = data.google_compute_network.vpc.name
+  subnet_id   = data.google_compute_subnetwork.subnet.id
+  subnet_cidr = data.google_compute_subnetwork.subnet.ip_cidr_range
 }
 
 # =============================================================================
@@ -174,58 +145,15 @@ resource "google_compute_firewall" "allow_egress" {
 # Cloud NAT (for outbound internet access)
 # =============================================================================
 
-resource "google_compute_router" "postgres_router" {
-  project = var.project_id
-  count   = var.enable_cloud_nat && var.vpc_name == "" ? 1 : 0
-  name    = "pg-${var.instance_name}-router"
-  region  = var.region
-  network = local.vpc_id
-
-  depends_on = [google_compute_network.postgres_network]
-}
-
-resource "google_compute_router_nat" "postgres_nat" {
-  project = var.project_id
-  count   = var.enable_cloud_nat && var.vpc_name == "" ? 1 : 0
-  name    = "pg-${var.instance_name}-nat"
-  router  = google_compute_router.postgres_router[0].name
-  region  = var.region
-
-  nat_ip_allocate_option             = "AUTO_ONLY"
-  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
-
-  subnetwork {
-    name                    = local.subnet_id
-    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
-  }
-
-  log_config {
-    enable = true
-    filter = "ERRORS_ONLY"
-  }
-}
+# Cloud NAT and Router are now managed by vpc-infra module.
 
 # =============================================================================
 # VPC Access Connector (for Cloud Run to PostgreSQL access)
 # =============================================================================
 # Only create if not using existing VPC (to avoid conflicts)
 
-resource "google_vpc_access_connector" "postgres_connector" {
-  count         = var.vpc_name != "" ? 0 : 1
-  project       = var.project_id
-  name          = "pg-${var.instance_name}-connector"
-  region        = var.region
-  network       = local.vpc_name
-  ip_cidr_range = var.vpc_connector_cidr != "" ? var.vpc_connector_cidr : "10.8.1.0/28"
-  min_instances = var.vpc_connector_min_instances
-  max_instances = var.vpc_connector_max_instances
-
-  depends_on = [
-    google_project_service.vpcaccess,
-    google_compute_subnetwork.postgres_subnet,
-    data.google_compute_subnetwork.existing
-  ]
-}
+# VPC Access Connector is now managed by vpc-infra module.
+# Reference it via vpc_infra outputs: module.vpc.vpc_connector_name
 
 # =============================================================================
 # Cloud Storage for Backups

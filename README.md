@@ -1,10 +1,12 @@
 # gcp-postgres-terraform
 
-> **Status:** Stable — v1.10
+> **Status:** Stable — v1.27+ | **BREAKING CHANGE**: Requires vpc-infra module
 
-PostgreSQL provisioning for GCP Compute Engine — extracted from [dev-nexus](https://github.com/patelmm79/dev-nexus).
+PostgreSQL provisioning for GCP Compute Engine — extracted from [dev-nexus](https://github.com/DarojaAI/dev-nexus).
 
-**Latest:** `?ref=v1.10` — contains all fixes for project scoping, monitoring dashboard, and templatefile variable passing.
+**⚠️ Important**: As of v1.27.0, this module **requires** [vpc-infra](https://github.com/DarojaAI/vpc-infra) for VPC infrastructure. See [BREAKING_CHANGES.md](./BREAKING_CHANGES.md) for migration guide.
+
+**Latest:** `?ref=v1.27.0` — VPC refactor, requires vpc-infra, removes fallback VPC creation
 
 ---
 
