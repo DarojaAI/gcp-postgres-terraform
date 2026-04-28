@@ -1,0 +1,232 @@
+name: Validate Deployment Health
+
+on:
+  workflow_run:
+    workflows: ["Terraform Apply"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to validate'
+        required: false
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate-deployment:
+    name: Validate PostgreSQL Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Detect environment
+        id: env
+        run: |
+          ENV="${{ github.event.inputs.environment || 'dev' }}"
+          PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
+          REGION="${{ vars.GCP_REGION || 'us-central1' }}"
+          ZONE="${REGION}-b"
+          
+          # Instance naming pattern
+          INSTANCE_NAME="postgres-vm-${ENV}"
+          
+          echo "environment=${ENV}" >> $GITHUB_OUTPUT
+          echo "project_id=${PROJECT_ID}" >> $GITHUB_OUTPUT
+          echo "region=${REGION}" >> $GITHUB_OUTPUT
+          echo "zone=${ZONE}" >> $GITHUB_OUTPUT
+          echo "instance_name=${INSTANCE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Check VM instance is RUNNING
+        id: vm-status
+        run: |
+          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+          
+          echo "🔍 Checking VM status: $INSTANCE..."
+          
+          STATUS=$(gcloud compute instances describe "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --format='value(status)' 2>/dev/null || echo "NOT_FOUND")
+          
+          echo "vm_status=${STATUS}" >> $GITHUB_OUTPUT
+          
+          if [[ "$STATUS" != "RUNNING" ]]; then
+            echo "❌ VM is not running. Status: $STATUS"
+            exit 1
+          fi
+          
+          echo "✅ VM is running"
+
+      - name: Check PostgreSQL service is active
+        id: pg-service
+        run: |
+          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+          
+          echo "🔍 Checking PostgreSQL service status..."
+          
+          SERVICE_STATUS=$(gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --command="systemctl is-active postgresql* 2>/dev/null | grep -q active && echo active || echo inactive" 2>&1 || echo "error")
+          
+          echo "pg_service_status=${SERVICE_STATUS}" >> $GITHUB_OUTPUT
+          
+          if [[ "$SERVICE_STATUS" == "active" ]]; then
+            echo "✅ PostgreSQL service is active"
+          else
+            echo "⚠️  PostgreSQL service status: $SERVICE_STATUS"
+          fi
+
+      - name: Check PostgreSQL is listening on port 5432
+        id: pg-listen
+        run: |
+          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+          
+          echo "🔍 Checking if PostgreSQL is listening on port 5432..."
+          
+          LISTENING=$(gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --command="sudo ss -tlnp 2>/dev/null | grep 5432" 2>&1 || echo "")
+          
+          if [[ -n "$LISTENING" ]]; then
+            echo "✅ PostgreSQL is listening on port 5432"
+            echo "pg_listening=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ PostgreSQL is NOT listening on port 5432"
+            echo "pg_listening=false" >> $GITHUB_OUTPUT
+            echo ""
+            echo "Listening ports:"
+            gcloud compute ssh "$INSTANCE" \
+              --zone="$ZONE" \
+              --project="$PROJECT" \
+              --command="sudo ss -tlnp 2>/dev/null" || true
+          fi
+
+      - name: Check PostgreSQL version
+        id: pg-version
+        run: |
+          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+          
+          echo "🔍 Checking PostgreSQL version..."
+          
+          VERSION=$(gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --command="sudo -u postgres psql -c 'SELECT version();' 2>&1" || echo "ERROR")
+          
+          if [[ "$VERSION" == *"PostgreSQL"* ]]; then
+            echo "✅ PostgreSQL is responding"
+            echo "pg_version_check=success" >> $GITHUB_OUTPUT
+            echo "Version info:"
+            echo "$VERSION" | head -1
+          else
+            echo "❌ PostgreSQL is not responding correctly"
+            echo "pg_version_check=failed" >> $GITHUB_OUTPUT
+            echo "Response: $VERSION"
+          fi
+
+      - name: Check startup script logs
+        if: ${{ failure() }}
+        run: |
+          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+          
+          echo "📋 Checking startup script logs for errors..."
+          
+          gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --command="sudo tail -100 /var/log/postgres-setup.log 2>/dev/null || echo 'Log file not found'" || true
+
+      - name: Generate deployment health report
+        run: |
+          cat << 'EOF'
+          ================================================================
+          🔍 DEPLOYMENT HEALTH CHECK REPORT
+          ================================================================
+          
+          Environment:     ${{ steps.env.outputs.environment }}
+          Instance:        ${{ steps.env.outputs.instance_name }}
+          Zone:            ${{ steps.env.outputs.zone }}
+          
+          STATUS:
+          --------
+          VM Status:              ${{ steps.vm-status.outputs.vm_status }}
+          PostgreSQL Service:     ${{ steps.pg-service.outputs.pg_service_status }}
+          PostgreSQL Listening:   ${{ steps.pg-listen.outputs.pg_listening }}
+          PostgreSQL Version:     ${{ steps.pg-version.outputs.pg_version_check }}
+          
+          ================================================================
+          EOF
+
+      - name: Fail if PostgreSQL not ready
+        if: ${{ steps.pg-listen.outputs.pg_listening != 'true' || steps.pg-version.outputs.pg_version_check != 'success' }}
+        run: |
+          echo "❌ DEPLOYMENT VALIDATION FAILED"
+          echo ""
+          echo "PostgreSQL is not responding correctly."
+          echo ""
+          echo "⚠️  ACTION REQUIRED:"
+          echo "  1. SSH into the instance:"
+          echo "     gcloud compute ssh ${{ steps.env.outputs.instance_name }} --zone=${{ steps.env.outputs.zone }}"
+          echo ""
+          echo "  2. Check startup script logs:"
+          echo "     sudo tail -100 /var/log/postgres-setup.log"
+          echo ""
+          echo "  3. Check if PostgreSQL is installed:"
+          echo "     dpkg -l | grep postgresql"
+          echo ""
+          echo "  4. Check service status:"
+          echo "     sudo systemctl status postgresql*"
+          echo ""
+          echo "  5. Re-run this workflow after fixing:"
+          echo "     gh workflow run validate-deployment.yml"
+          exit 1
+
+      - name: Success notification
+        if: ${{ success() && steps.pg-listen.outputs.pg_listening == 'true' && steps.pg-version.outputs.pg_version_check == 'success' }}
+        run: |
+          echo ""
+          echo "✅ DEPLOYMENT VALIDATION SUCCESSFUL"
+          echo ""
+          echo "PostgreSQL is fully operational and ready for use."
+          echo ""
+          echo "Next steps:"
+          echo "  1. Verify application connectivity"
+          echo "  2. Run data migrations if needed"
+          echo "  3. Monitor logs at: /var/log/postgres-setup.log"
