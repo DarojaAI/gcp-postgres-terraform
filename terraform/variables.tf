@@ -126,27 +126,29 @@ variable "disk_type" {
 # =============================================================================
 
 variable "vpc_name" {
-  description = "Name of existing VPC network to use (empty = create new VPC)"
+  description = "Name of existing VPC network (created and managed by vpc-infra module)"
   type        = string
-  default     = ""
+
+  validation {
+    condition     = var.vpc_name != ""
+    error_message = "vpc_name is required. This module expects VPC to be created by vpc-infra module. Pass module.vpc.vpc_name from vpc-infra output."
+  }
 }
 
 variable "subnet_name" {
-  description = "Name of existing subnet to use (empty = create new subnet)"
+  description = "Name of existing subnet (created and managed by vpc-infra module)"
   type        = string
-  default     = ""
-}
 
-variable "subnet_cidr" {
-  description = "CIDR range for PostgreSQL subnet (used only when creating new subnet)"
-  type        = string
-  default     = "10.8.0.0/24"
+  validation {
+    condition     = var.subnet_name != ""
+    error_message = "subnet_name is required. This module expects subnet to be created by vpc-infra module. Pass module.vpc.subnet_names[0] from vpc-infra output."
+  }
 }
 
 variable "vpc_connector_cidr" {
-  description = "CIDR range for VPC connector (must be /28 and within VPC)"
+  description = "DEPRECATED: VPC connector is now created by vpc-infra module. This variable is ignored."
   type        = string
-  default     = "10.8.1.0/28"
+  default     = "10.10.2.0/28"
 }
 
 variable "allow_postgres_from_cidrs" {

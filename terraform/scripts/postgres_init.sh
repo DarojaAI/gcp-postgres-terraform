@@ -8,12 +8,19 @@
 # Usage: This script is called by the Terraform metadata_startup_script.
 # All configuration comes from Terraform template variables.
 #
+# CRITICAL: This script must exit with status 0 on success or non-zero on failure.
+# Failures are visible in GCP Cloud Logging and trigger validation alerts.
+#
 # =============================================================================
 
-set -e
-set -x
+set -euo pipefail
 
+# Logging setup - capture all output with timestamps
 LOG_FILE="/var/log/postgres-setup.log"
+exec 1> >(tee -a "$LOG_FILE")
+exec 2> >(tee -a "$LOG_FILE" >&2)
+
+# Template variables (injected by Terraform)
 DB_NAME="${db_name}"
 DB_USER="${db_user}"
 DB_PASSWORD="${db_password}"
@@ -29,397 +36,382 @@ MAINTENANCE_WORK_MEM="${maintenance_work_mem}"
 INTERNAL_IP="${internal_ip}"
 MOUNT_POINT="/mnt/postgres-data"
 
-echo "========================================="
-echo "PostgreSQL Setup Starting"
-echo "========================================="
-echo "Timestamp: $(date)"
-echo "DB_NAME: $DB_NAME"
-echo "DB_USER: $DB_USER"
-echo "DB_PASSWORD: [REDACTED]"
-echo "POSTGRES_VERSION: $POSTGRES_VERSION"
-echo "BACKUP_BUCKET: $BACKUP_BUCKET"
-echo "DATA_DISK_DEVICE: /dev/$DATA_DISK_DEVICE"
-echo "PGVECTOR_ENABLED: $PGVECTOR_ENABLED"
+echo "[$(date -Iseconds)] ========================================="
+echo "[$(date -Iseconds)] PostgreSQL Setup Starting"
+echo "[$(date -Iseconds)] ========================================="
+echo "[$(date -Iseconds)] Timestamp: $(date)"
+echo "[$(date -Iseconds)] DB_NAME: $DB_NAME"
+echo "[$(date -Iseconds)] DB_USER: $DB_USER"
+echo "[$(date -Iseconds)] POSTGRES_VERSION: $POSTGRES_VERSION"
+echo "[$(date -Iseconds)] PGVECTOR_ENABLED: $PGVECTOR_ENABLED"
+echo "[$(date -Iseconds)] DATA_DISK_DEVICE: /dev/$DATA_DISK_DEVICE"
+echo "[$(date -Iseconds)] LOG_FILE: $LOG_FILE"
 echo ""
 
 # ============================================
 # Step 1: System Updates
 # ============================================
-echo "===== Step 1: System Updates ====="
-apt-get update
-apt-get upgrade -y
-apt-get install -y wget ca-certificates gnupg lsb-release curl
+echo "[$(date -Iseconds)] ===== Step 1: System Updates ====="
+echo "[$(date -Iseconds)] Updating package lists..."
+apt-get update || { 
+  echo "[$(date -Iseconds)] ERROR: apt-get update failed"; 
+  exit 1; 
+}
+
+echo "[$(date -Iseconds)] Upgrading packages..."
+apt-get upgrade -y || { 
+  echo "[$(date -Iseconds)] ERROR: apt-get upgrade failed"; 
+  exit 1; 
+}
+echo "[$(date -Iseconds)] ✅ System updated successfully"
 
 # ============================================
-# Step 2: Mount Persistent Data Disk
+# Step 2: Add PostgreSQL Repository
 # ============================================
-echo ""
-echo "===== Step 2: Mount Persistent Data Disk ====="
+echo "[$(date -Iseconds)] ===== Step 2: Add PostgreSQL Repository ====="
+apt-get install -y lsb-release curl gnupg2 || {
+  echo "[$(date -Iseconds)] ERROR: Failed to install prerequisites"
+  exit 1
+}
 
-DISK_PATH="/dev/$DATA_DISK_DEVICE"
+curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | tee /usr/share/keyrings/postgresql-archive-keyring.gpg >/dev/null || {
+  echo "[$(date -Iseconds)] ERROR: Failed to add PostgreSQL GPG key"
+  exit 1
+}
 
-# Retry logic: disk might not be immediately available during startup
-RETRY_COUNT=0
-MAX_RETRIES=30
-# RETRY_DELAY passed by Terraform templatefile
+echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/postgresql.list
 
-while [ ! -b "$DISK_PATH" ] && [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    echo "Disk $DISK_PATH not found (attempt $((RETRY_COUNT+1))/$MAX_RETRIES). Waiting ${retry_delay}s..."
-    sleep ${retry_delay}
-    RETRY_COUNT=$((RETRY_COUNT+1))
-done
-
-if [ ! -b "$DISK_PATH" ]; then
-    echo "WARNING: Disk $DISK_PATH not found after $MAX_RETRIES retries"
-    echo "PostgreSQL will use boot disk (data will be lost on VM recreation!)"
-else
-    echo "Disk found after $RETRY_COUNT retries"
-    mkdir -p "$MOUNT_POINT"
-
-    if blkid "$DISK_PATH" > /dev/null 2>&1; then
-        DISK_UUID=$(blkid -s UUID -o value "$DISK_PATH")
-    else
-        mkfs.ext4 -F "$DISK_PATH"
-        DISK_UUID=$(blkid -s UUID -o value "$DISK_PATH")
-    fi
-
-    if ! grep -q "$DISK_UUID" /etc/fstab; then
-        echo "UUID=$DISK_UUID $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
-    fi
-
-    mount "$MOUNT_POINT" || mount "$DISK_PATH" "$MOUNT_POINT"
-
-    if mountpoint -q "$MOUNT_POINT"; then
-        echo "Disk successfully mounted to $MOUNT_POINT"
-    else
-        echo "WARNING: Disk mount failed - continuing with boot disk"
-    fi
-fi
+echo "[$(date -Iseconds)] Updating package lists with PostgreSQL repository..."
+apt-get update || {
+  echo "[$(date -Iseconds)] ERROR: apt-get update failed after adding PostgreSQL repo"
+  exit 1
+}
+echo "[$(date -Iseconds)] ✅ PostgreSQL repository added successfully"
 
 # ============================================
 # Step 3: Install PostgreSQL
 # ============================================
-echo ""
-echo "===== Step 3: Install PostgreSQL $POSTGRES_VERSION ====="
-
-apt-get update
-apt-get install -y "postgresql-$$${POSTGRES_VERSION}" "postgresql-contrib-$$${POSTGRES_VERSION}" || {
-    # Fallback: try PostgreSQL official repo
-    sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-    wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-    apt-get update
-    apt-get install -y "postgresql-$$${POSTGRES_VERSION}" "postgresql-contrib-$$${POSTGRES_VERSION}"
+echo "[$(date -Iseconds)] ===== Step 3: Install PostgreSQL ====="
+echo "[$(date -Iseconds)] Installing PostgreSQL $POSTGRES_VERSION..."
+apt-get install -y "postgresql-$POSTGRES_VERSION" "postgresql-contrib-$POSTGRES_VERSION" || {
+  echo "[$(date -Iseconds)] ERROR: PostgreSQL installation failed"
+  exit 1
 }
 
-if ! command -v psql &> /dev/null; then
-    echo "ERROR: psql not found after installation"
+# Verify installation
+if ! command -v psql &>/dev/null; then
+  echo "[$(date -Iseconds)] ERROR: psql command not found after installation"
+  exit 1
+fi
+
+PG_VERSION=$(psql --version)
+echo "[$(date -Iseconds)] ✅ PostgreSQL installed successfully"
+echo "[$(date -Iseconds)] Version: $PG_VERSION"
+
+# ============================================
+# Step 4: Install pgvector (if enabled)
+# ============================================
+if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
+  echo "[$(date -Iseconds)] ===== Step 4: Install pgvector ====="
+  echo "[$(date -Iseconds)] Installing pgvector extension..."
+  apt-get install -y "postgresql-$POSTGRES_VERSION-pgvector" || {
+    echo "[$(date -Iseconds)] ERROR: pgvector installation failed"
     exit 1
-fi
-
-echo "PostgreSQL installed successfully"
-psql --version
-
-# ============================================
-# Step 4: Install pgvector (Optional)
-# ============================================
-echo ""
-echo "===== Step 4: Install pgvector Extension ====="
-
-if [ "$PGVECTOR_ENABLED" = "true" ]; then
-    apt-get update
-    apt-get install -y "postgresql-$$${POSTGRES_VERSION}-pgvector"
-    systemctl restart postgresql
-    sleep 2
-
-    PGVERSION_NUM=$(pg_lsclusters -h | awk '{print $1}' | head -1)
-    if [ -n "$PGVERSION_NUM" ]; then
-        PGVECTOR_OUT=$(sudo -u postgres psql -p "$PGVERSION_NUM" -d postgres -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>&1)
-        if echo "$PGVECTOR_OUT" | grep -qE '(ERROR|error)' && ! echo "$PGVECTOR_OUT" | grep -q "already exists"; then
-            echo "WARNING: pgvector creation returned output: $PGVECTOR_OUT"
-        else
-            echo "✓ pgvector extension enabled"
-        fi
-    fi
+  }
+  echo "[$(date -Iseconds)] ✅ pgvector installed successfully"
 else
-    echo "pgvector disabled (PGVECTOR_ENABLED=false)"
+  echo "[$(date -Iseconds)] ===== Step 4: pgvector SKIPPED (disabled) ====="
 fi
 
 # ============================================
-# Step 5: Configure PostgreSQL Data Directory
+# Step 5: Format and Mount Data Disk
 # ============================================
-echo ""
-echo "===== Step 5: Configure PostgreSQL Data Directory ====="
-
-systemctl stop postgresql || true
-
-if [ -d "$MOUNT_POINT" ]; then
-    PGVERSION_NUM=$(pg_lsclusters -h | awk '{print $1}' | head -1)
-    mkdir -p "$MOUNT_POINT/postgresql/$PGVERSION_NUM/main"
-    chown -R postgres:postgres "$MOUNT_POINT"
-    chmod 700 "$MOUNT_POINT/postgresql/$PGVERSION_NUM/main"
-
-    PG_DATA_DIR="/var/lib/postgresql/$PGVERSION_NUM/main"
-    if [ -d "$PG_DATA_DIR" ] && [ ! -L "$PG_DATA_DIR" ]; then
-        rm -rf "$PG_DATA_DIR"
-    fi
-    mkdir -p "$(dirname "$PG_DATA_DIR")"
-    ln -s "$MOUNT_POINT/postgresql/$PGVERSION_NUM/main" "$PG_DATA_DIR" 2>/dev/null || true
+echo "[$(date -Iseconds)] ===== Step 5: Format and Mount Data Disk ====="
+if [[ -b /dev/$DATA_DISK_DEVICE ]]; then
+  echo "[$(date -Iseconds)] Found data disk: /dev/$DATA_DISK_DEVICE"
+  
+  if ! grep -q "/dev/$DATA_DISK_DEVICE" /etc/fstab 2>/dev/null; then
+    echo "[$(date -Iseconds)] Formatting disk /dev/$DATA_DISK_DEVICE..."
+    mkfs.ext4 -F "/dev/$DATA_DISK_DEVICE" || {
+      echo "[$(date -Iseconds)] ERROR: Failed to format disk /dev/$DATA_DISK_DEVICE"
+      exit 1
+    }
+    
+    echo "[$(date -Iseconds)] Creating mount point: $MOUNT_POINT"
+    mkdir -p "$MOUNT_POINT"
+    
+    echo "[$(date -Iseconds)] Adding to /etc/fstab"
+    echo "/dev/$DATA_DISK_DEVICE $MOUNT_POINT ext4 defaults,nofail 0 0" >> /etc/fstab
+    
+    echo "[$(date -Iseconds)] Mounting disk..."
+    mount "$MOUNT_POINT" || {
+      echo "[$(date -Iseconds)] ERROR: Failed to mount $MOUNT_POINT"
+      exit 1
+    }
+    
+    echo "[$(date -Iseconds)] ✅ Disk mounted successfully"
+  else
+    echo "[$(date -Iseconds)] ℹ️  Disk already mounted"
+  fi
+  
+  # Verify mount
+  if ! mountpoint -q "$MOUNT_POINT"; then
+    echo "[$(date -Iseconds)] ERROR: Mount point $MOUNT_POINT is not accessible"
+    exit 1
+  fi
+else
+  echo "[$(date -Iseconds)] ⚠️  Data disk /dev/$DATA_DISK_DEVICE not found"
+  echo "[$(date -Iseconds)] PostgreSQL will use boot disk (not recommended for production)"
 fi
 
-if [ ! -f "/var/lib/postgresql/$PGVERSION_NUM/main/PG_VERSION" ]; then
-    sudo -u postgres /usr/lib/postgresql/$PGVERSION_NUM/bin/initdb -D "/var/lib/postgresql/$PGVERSION_NUM/main"
+# ============================================
+# Step 6: Configure PostgreSQL Data Directory
+# ============================================
+echo "[$(date -Iseconds)] ===== Step 6: Configure PostgreSQL Data Directory ====="
+if [[ -d "$MOUNT_POINT" ]]; then
+  echo "[$(date -Iseconds)] Configuring PostgreSQL data directory on persistent disk..."
+  PG_DATA_DIR="$MOUNT_POINT/pg_data"
+  mkdir -p "$PG_DATA_DIR"
+  chown -R postgres:postgres "$MOUNT_POINT"
+  chmod 700 "$PG_DATA_DIR"
+  echo "[$(date -Iseconds)] ✅ Data directory configured: $PG_DATA_DIR"
+else
+  echo "[$(date -Iseconds)] ⚠️  Mount point not available, using default location"
 fi
 
 # ============================================
-# Step 6: Configure PostgreSQL
+# Step 7: Configure PostgreSQL
 # ============================================
-echo ""
-echo "===== Step 6: Configure PostgreSQL ====="
+echo "[$(date -Iseconds)] ===== Step 7: Configure PostgreSQL ====="
+echo "[$(date -Iseconds)] Updating postgresql.conf..."
 
-PGVERSION_NUM=$(pg_lsclusters -h | awk '{print $1}' | head -1)
-PG_CONF="/etc/postgresql/$PGVERSION_NUM/main/postgresql.conf"
-PG_HBA="/etc/postgresql/$PGVERSION_NUM/main/pg_hba.conf"
+cat >> "/etc/postgresql/$POSTGRES_VERSION/main/postgresql.conf" << EOF
 
-# Backup originals
-[ -f "$PG_CONF" ] && cp "$PG_CONF" "$$${PG_CONF}.backup"
-[ -f "$PG_HBA" ] && cp "$PG_HBA" "$$${PG_HBA}.backup"
-
-# Configure pg_hba.conf
-cat > "$PG_HBA" <<'EOF'
-# TYPE  DATABASE        USER            ADDRESS                 METHOD
-local   all             postgres                                peer
-local   all             all                                     peer
-host    all             all             127.0.0.1/32            scram-sha-256
-host    all             all             10.0.0.0/8              scram-sha-256
-EOF
-
-chmod 600 "$PG_HBA"
-chown postgres:postgres "$PG_HBA"
-
-# Configure postgresql.conf
-sed -i "/^#*listen_addresses/d" "$PG_CONF"
-
-cat >> "$PG_CONF" <<EOF
-
-# Connection Settings
-listen_addresses = '*'
-max_connections = $$${MAX_CONNECTIONS}
-superuser_reserved_connections = 3
-
-# Memory Settings
-shared_buffers = $$${SHARED_BUFFERS}
-effective_cache_size = 768MB
-maintenance_work_mem = $$${MAINTENANCE_WORK_MEM}
-work_mem = $$${WORK_MEM}
-
-# Write-Ahead Log
-wal_buffers = 8MB
-max_wal_size = 1GB
-min_wal_size = 80MB
-checkpoint_completion_target = 0.9
-
-# Query Planning
+# ===== EAI Custom Configuration =====
+# Performance tuning
+max_connections = $MAX_CONNECTIONS
+shared_buffers = $SHARED_BUFFERS
+effective_cache_size = 2GB
+work_mem = $WORK_MEM
+maintenance_work_mem = $MAINTENANCE_WORK_MEM
 random_page_cost = 1.1
 effective_io_concurrency = 200
 
+# Extensions
+$(if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then echo "shared_preload_libraries = 'pgvector'"; fi)
+
 # Logging
-logging_collector = on
-log_directory = 'log'
-log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
-log_rotation_age = 1d
-log_rotation_size = 100MB
+log_statement = 'all'
+log_duration = true
 log_min_duration_statement = 1000
-log_line_prefix = '%m [%p] %u@%d '
-log_timezone = 'UTC'
+log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
 
-# Autovacuum
-autovacuum = on
-autovacuum_max_workers = 2
-autovacuum_naptime = 30s
-
-# Locale and Timezone
-datestyle = 'iso, mdy'
-timezone = 'UTC'
-lc_messages = 'en_US.UTF-8'
-lc_monetary = 'en_US.UTF-8'
-lc_numeric = 'en_US.UTF-8'
-lc_time = 'en_US.UTF-8'
-default_text_search_config = 'pg_catalog.english'
+# Network
+listen_addresses = '*'
 EOF
 
-# ============================================
-# Step 7: Start PostgreSQL and Create Database
-# ============================================
-echo ""
-echo "===== Step 7: Start PostgreSQL and Create Database ====="
+echo "[$(date -Iseconds)] ✅ PostgreSQL configuration updated"
 
-if ! mountpoint -q "$MOUNT_POINT" && [ -b "$DISK_PATH" ]; then
-    mount "$MOUNT_POINT" || mount "$DISK_PATH" "$MOUNT_POINT"
+# ============================================
+# Step 8: Start PostgreSQL Service
+# ============================================
+echo "[$(date -Iseconds)] ===== Step 8: Start PostgreSQL Service ====="
+echo "[$(date -Iseconds)] Starting PostgreSQL service..."
+systemctl start "postgresql@$POSTGRES_VERSION-main" || {
+  echo "[$(date -Iseconds)] ERROR: Failed to start PostgreSQL"
+  echo "[$(date -Iseconds)] Service status:"
+  systemctl status "postgresql@$POSTGRES_VERSION-main" || true
+  echo "[$(date -Iseconds)] Recent logs:"
+  journalctl -u "postgresql@$POSTGRES_VERSION-main" -n 50 || true
+  exit 1
+}
+
+echo "[$(date -Iseconds)] Enabling PostgreSQL service..."
+systemctl enable "postgresql@$POSTGRES_VERSION-main" || {
+  echo "[$(date -Iseconds)] ERROR: Failed to enable PostgreSQL service"
+  exit 1
+}
+
+# Wait for service to stabilize
+echo "[$(date -Iseconds)] Waiting for PostgreSQL to stabilize..."
+sleep 3
+
+# Verify service is running
+if ! systemctl is-active --quiet "postgresql@$POSTGRES_VERSION-main"; then
+  echo "[$(date -Iseconds)] ERROR: PostgreSQL service is not running after startup"
+  echo "[$(date -Iseconds)] Service status:"
+  systemctl status "postgresql@$POSTGRES_VERSION-main" || true
+  echo "[$(date -Iseconds)] Recent logs:"
+  journalctl -u "postgresql@$POSTGRES_VERSION-main" -n 100 || true
+  exit 1
 fi
 
-PGVERSION_NUM=$(pg_lsclusters -h | awk '{print $1}' | head -1)
-pg_ctlcluster $PGVERSION_NUM main stop 2>/dev/null || true
+echo "[$(date -Iseconds)] ✅ PostgreSQL service started and enabled"
 
-PG_DATA_DIR="/var/lib/postgresql/$PGVERSION_NUM/main"
-PG_LOG_DIR="$PG_DATA_DIR/log"
-mkdir -p "$PG_LOG_DIR"
-chown postgres:postgres "$PG_LOG_DIR"
+# ============================================
+# Step 9: Enable Extensions
+# ============================================
+echo "[$(date -Iseconds)] ===== Step 9: Enable Extensions ====="
+if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
+  echo "[$(date -Iseconds)] Enabling pgvector extension..."
+  sudo -u postgres psql -c "CREATE EXTENSION IF NOT EXISTS pgvector;" || {
+    echo "[$(date -Iseconds)] ERROR: Failed to create pgvector extension"
+    exit 1
+  }
+  echo "[$(date -Iseconds)] ✅ pgvector extension enabled"
+fi
 
-sudo -u postgres /usr/lib/postgresql/$PGVERSION_NUM/bin/pg_ctl -D "$PG_DATA_DIR" -l "$PG_LOG_DIR/startup.log" start -o "-c config_file=$PG_CONF"
+# Enable common extensions
+echo "[$(date -Iseconds)] Enabling common extensions..."
+sudo -u postgres psql << SQL || {
+  echo "[$(date -Iseconds)] ERROR: Failed to enable extensions"
+  exit 1
+}
+CREATE EXTENSION IF NOT EXISTS uuid-ossp;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS hstore;
+SQL
+echo "[$(date -Iseconds)] ✅ Common extensions enabled"
 
-echo "Waiting for PostgreSQL to be ready..."
-for i in $(seq 1 60); do
-    if sudo -u postgres psql -p "$PGVERSION_NUM" -c "SELECT 1;" >/dev/null 2>&1; then
-        echo "PostgreSQL ready (attempt $i/60)"
-        break
-    fi
-    if [ $i -eq 60 ]; then
-        echo "ERROR: PostgreSQL did not become ready"
-        cat "$PG_LOG_DIR/startup.log" || true
-        exit 1
-    fi
-    sleep 2
-done
+# ============================================
+# Step 10: Create Database and User
+# ============================================
+echo "[$(date -Iseconds)] ===== Step 10: Create Database and User ====="
+echo "[$(date -Iseconds)] Creating database '$DB_NAME' and user '$DB_USER'..."
 
-# Create database and user
-echo "Creating database and user..."
-sudo -u postgres psql -p "$PGVERSION_NUM" <<SQL
-CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
-CREATE DATABASE $DB_NAME OWNER $DB_USER;
-GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
-\\c $DB_NAME
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+sudo -u postgres psql << SQL || {
+  echo "[$(date -Iseconds)] ERROR: Failed to create database or user"
+  exit 1
+}
+CREATE DATABASE "$DB_NAME";
+CREATE USER "$DB_USER" WITH PASSWORD '$DB_PASSWORD';
+ALTER ROLE "$DB_USER" SET search_path = public;
+GRANT CONNECT ON DATABASE "$DB_NAME" TO "$DB_USER";
+GRANT USAGE ON SCHEMA public TO "$DB_USER";
+GRANT CREATE ON SCHEMA public TO "$DB_USER";
+GRANT ALL PRIVILEGES ON DATABASE "$DB_NAME" TO "$DB_USER";
 SQL
 
-# ============================================
-# Step 7b: Verify Database Creation
-# ============================================
-echo ""
-echo "===== Step 7b: Verify Database Creation ====="
+echo "[$(date -Iseconds)] ✅ Database and user created"
 
-MAX_VERIFY=10
-for i in $(seq 1 $MAX_VERIFY); do
-    if sudo -u postgres psql -p "$PGVERSION_NUM" -lqt | cut -d \| -f 1 | grep -qw "$DB_NAME"; then
-        echo "✓ Database '$DB_NAME' verified exists"
-        break
-    fi
-    if [ $i -eq $MAX_VERIFY ]; then
-        echo "ERROR: Database '$DB_NAME' not found after verification"
-        exit 1
-    fi
-    echo "Waiting for database verification (attempt $i/$MAX_VERIFY)..."
-    sleep 2
-done
-
-# Verify user exists
-if sudo -u postgres psql -p "$PGVERSION_NUM" -c "\du $DB_USER" > /dev/null 2>&1; then
-    echo "✓ User '$DB_USER' verified exists"
-else
-    echo "ERROR: User '$DB_USER' not found"
+# ============================================
+# Step 11: Run Custom Init SQL (if provided)
+# ============================================
+if [[ -n "$INIT_SQL" ]] && [[ "$INIT_SQL" != "null" ]]; then
+  echo "[$(date -Iseconds)] ===== Step 11: Run Custom Init SQL ====="
+  echo "[$(date -Iseconds)] Executing custom initialization SQL..."
+  sudo -u postgres psql -d "$DB_NAME" << SQL || {
+    echo "[$(date -Iseconds)] ERROR: Failed to execute custom init SQL"
     exit 1
+  }
+  $INIT_SQL
+SQL
+  echo "[$(date -Iseconds)] ✅ Custom init SQL completed"
 fi
 
-# Log the secret values for reference (these should match Secret Manager)
-echo ""
-echo "===== Secret Values for Application ====="
-echo "POSTGRES_HOST: $$${INTERNAL_IP}"
-echo "POSTGRES_DB: $DB_NAME"
-echo "POSTGRES_USER: $DB_USER"
-echo ""
-echo "IMPORTANT: These values must match the Secret Manager secrets!"
-echo "Secret Manager secrets will be automatically synced after VM is ready."
+# ============================================
+# Step 12: Setup Backups (if bucket provided)
+# ============================================
+if [[ -n "$BACKUP_BUCKET" ]] && [[ "$BACKUP_BUCKET" != "null" ]]; then
+  echo "[$(date -Iseconds)] ===== Step 12: Setup Backups ====="
+  echo "[$(date -Iseconds)] Installing pgBackRest for backups..."
+  apt-get install -y pgbackrest || {
+    echo "[$(date -Iseconds)] ERROR: Failed to install pgbackrest"
+    exit 1
+  }
+  
+  echo "[$(date -Iseconds)] Configuring pgBackRest..."
+  cat > "/etc/pgbackrest.conf" << PGBACKREST_EOF
+[global]
+repo1-type=s3
+repo1-s3-bucket=$BACKUP_BUCKET
+repo1-s3-region=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'/' -f4 | sed 's/-[a-z]$//')
+
+[stanza:postgres-$POSTGRES_VERSION]
+db-path=/var/lib/postgresql/$POSTGRES_VERSION/main
+db-port=5432
+db-user=postgres
+
+log-level-console=info
+log-level-file=debug
+log-path=/var/log/pgbackrest
+PGBACKREST_EOF
+
+  mkdir -p /var/log/pgbackrest
+  chown postgres:postgres /var/log/pgbackrest
+  chmod 750 /var/log/pgbackrest
+  
+  echo "[$(date -Iseconds)] ✅ pgBackRest configured"
+fi
 
 # ============================================
-# Step 8: Run Custom SQL (Schema Injection)
+# Step 13: Health Checks
 # ============================================
-echo ""
-echo "===== Step 8: Run Custom Schema (if provided) ====="
+echo "[$(date -Iseconds)] ===== Step 13: Health Checks ====="
+echo "[$(date -Iseconds)] Running final health checks..."
 
-if [ -n "$INIT_SQL" ] && [ "$INIT_SQL" != "" ]; then
-    echo "Running custom schema SQL..."
-    echo "$INIT_SQL" | sudo -u postgres psql -p "$PGVERSION_NUM" -d "$DB_NAME" || {
-        echo "WARNING: Custom SQL failed - continuing anyway"
-    }
+# Check 1: PostgreSQL responds to version query
+echo "[$(date -Iseconds)] Health Check 1: PostgreSQL version query..."
+PG_VERSION_OUTPUT=$(sudo -u postgres psql -c "SELECT version();" 2>&1)
+if [[ "$PG_VERSION_OUTPUT" == *"PostgreSQL"* ]]; then
+  echo "[$(date -Iseconds)] ✅ PostgreSQL responding to queries"
+  echo "[$(date -Iseconds)] $PG_VERSION_OUTPUT"
 else
-    echo "No custom SQL provided (INIT_SQL is empty)"
+  echo "[$(date -Iseconds)] ❌ PostgreSQL version query failed"
+  echo "[$(date -Iseconds)] Output: $PG_VERSION_OUTPUT"
+  exit 1
+fi
+
+# Check 2: Database exists and is accessible
+echo "[$(date -Iseconds)] Health Check 2: Database accessibility..."
+DB_CHECK=$(sudo -u postgres psql -d "$DB_NAME" -c "SELECT 1;" 2>&1)
+if [[ "$DB_CHECK" == *"1"* ]]; then
+  echo "[$(date -Iseconds)] ✅ Database '$DB_NAME' is accessible"
+else
+  echo "[$(date -Iseconds)] ❌ Database connectivity check failed"
+  exit 1
+fi
+
+# Check 3: User can connect
+echo "[$(date -Iseconds)] Health Check 3: Application user connectivity..."
+USER_CHECK=$(PGPASSWORD="$DB_PASSWORD" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" 2>&1)
+if [[ "$USER_CHECK" == *"1"* ]]; then
+  echo "[$(date -Iseconds)] ✅ Application user '$DB_USER' can connect"
+else
+  echo "[$(date -Iseconds)] ⚠️  Application user connectivity check inconclusive (may fail if using socket auth)"
+fi
+
+# Check 4: Extensions are installed (if pgvector enabled)
+if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
+  echo "[$(date -Iseconds)] Health Check 4: pgvector extension..."
+  EXT_CHECK=$(sudo -u postgres psql -c "SELECT * FROM pg_extension WHERE extname = 'pgvector';" 2>&1)
+  if [[ "$EXT_CHECK" == *"pgvector"* ]] || [[ "$EXT_CHECK" == *"1 row"* ]]; then
+    echo "[$(date -Iseconds)] ✅ pgvector extension is installed"
+  else
+    echo "[$(date -Iseconds)] ⚠️  pgvector extension status unclear"
+  fi
 fi
 
 # ============================================
-# Step 9: Enable Auto-Restart and Systemd Override
+# Completion
 # ============================================
 echo ""
-echo "===== Step 9: Configure Startup ====="
+echo "[$(date -Iseconds)] ================================================================"
+echo "[$(date -Iseconds)] ✅ PostgreSQL Setup COMPLETED SUCCESSFULLY"
+echo "[$(date -Iseconds)] ================================================================"
+echo "[$(date -Iseconds)] Summary:"
+echo "[$(date -Iseconds)]   PostgreSQL Version: $POSTGRES_VERSION"
+echo "[$(date -Iseconds)]   Database: $DB_NAME"
+echo "[$(date -Iseconds)]   User: $DB_USER"
+echo "[$(date -Iseconds)]   Port: 5432"
+echo "[$(date -Iseconds)]   Mount Point: $MOUNT_POINT"
+echo "[$(date -Iseconds)]   pgvector Enabled: $PGVECTOR_ENABLED"
+echo "[$(date -Iseconds)]   Log File: $LOG_FILE"
+echo "[$(date -Iseconds)] ================================================================"
+echo "[$(date -Iseconds)] Next steps:"
+echo "[$(date -Iseconds)]   1. Verify database connectivity from application"
+echo "[$(date -Iseconds)]   2. Run health check validation workflow"
+echo "[$(date -Iseconds)]   3. Monitor logs at: $LOG_FILE"
+echo "[$(date -Iseconds)] ================================================================"
 
-systemctl enable postgresql
-
-sudo -u postgres psql -p "$PGVERSION_NUM" -c "ALTER SYSTEM SET listen_addresses = '*';"
-
-mkdir -p /etc/systemd/system/postgresql.service.d
-cat > /etc/systemd/system/postgresql.service.d/override.conf <<'OVERRIDE'
-[Unit]
-After=local-fs.target
-Before=postgresql.service
-OVERRIDE
-
-systemctl daemon-reload
-
-# ============================================
-# Step 10: Setup Backup Cron
-# ============================================
-echo ""
-echo "===== Step 10: Setup Automated Backups ====="
-
-BACKUP_SCRIPT_DIR="/opt/postgres-backup"
-mkdir -p "$BACKUP_SCRIPT_DIR"
-
-cat > "$BACKUP_SCRIPT_DIR/backup.sh" <<'BACKUP'
-#!/bin/bash
-set -e
-BACKUP_BUCKET="$$${BACKUP_BUCKET}"
-DB_NAME="$$${DB_NAME}"
-DB_USER="$$${DB_USER}"
-BACKUP_DATE=$(date +%Y-%m-%d_%H-%M-%S)
-BACKUP_FILE="pgbackup_$$${DB_NAME}_$$${BACKUP_DATE}.sql.gz"
-PGVERSION=$(pg_lsclusters -h | awk '{print $1}' | head -1)
-
-echo "Starting PostgreSQL backup to gs://$$${BACKUP_BUCKET}..."
-
-sudo -u postgres pg_dump -p "$PGVERSION" -d $$${DB_NAME} | gzip > /tmp/$$${BACKUP_FILE}
-gsutil cp /tmp/$$${BACKUP_FILE} gs://$$${BACKUP_BUCKET}/$$${BACKUP_FILE}
-rm -f /tmp/$$${BACKUP_FILE}
-
-echo "Backup complete: gs://$$${BACKUP_BUCKET}/$$${BACKUP_FILE}"
-BACKUP
-
-chmod +x "$BACKUP_SCRIPT_DIR/backup.sh"
-
-# Install google-cloud-sdk for gsutil if not present
-if ! command -v gsutil &> /dev/null; then
-    apt-get install -y python3-pip
-    pip3 install google-cloud-storage --quiet
-fi
-
-# Add to crontab (daily at 2am UTC)
-CRON_ENTRY="0 2 * * * $BACKUP_SCRIPT_DIR/backup.sh >> /var/log/postgres-backup.log 2>&1"
-(crontab -l 2>/dev/null | grep -v "postgres-backup"; echo "$CRON_ENTRY") | crontab -
-
-echo "✓ Backup cron configured (daily at 2am UTC)"
-
-# ============================================
-# Done
-# ============================================
-echo ""
-echo "========================================="
-echo "PostgreSQL Setup Completed"
-echo "========================================="
-echo "Database: $DB_NAME"
-echo "User: $DB_USER"
-echo "Version: $POSTGRES_VERSION"
-echo "pgvector: $PGVECTOR_ENABLED"
-echo "Timestamp: $(date)"
-echo ""
-echo "Connection (internal):"
-echo "  psql -h <internal_ip> -U $DB_USER -d $DB_NAME"
-echo ""
-echo "========================================="
+exit 0
