@@ -1,0 +1,58 @@
+name: Create Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "VERSION"
+      - "version.txt"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Detect version
+        id: version
+        run: |
+          VERSION=""
+          if [ -f VERSION ]; then
+            VERSION=$(cat VERSION)
+          elif [ -f version.txt ]; then
+            VERSION=$(cat version.txt)
+          else
+            # Fall back to latest commit on main
+            VERSION=$(git log --format=%h -1)
+            echo "WARNING: No VERSION file found, using commit hash: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Ensure version tag
+        id: tag_check
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v$VERSION"
+          fi
+          
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create GitHub Release
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag_check.outputs.tag }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
