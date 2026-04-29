@@ -61,24 +61,31 @@ resource "google_project_service" "secretmanager" {
 # =============================================================================
 
 # Data source for existing VPC (required, created by vpc-infra)
+# Optional: Skip data source lookup if IDs provided directly
 data "google_compute_network" "vpc" {
+  count   = var.network_id == "" ? 1 : 0
   name    = var.vpc_name
   project = var.project_id
 }
 
-# Data source for existing subnet (required, created by vpc-infra)
+# Optional: Skip data source lookup if subnet_id provided directly
 data "google_compute_subnetwork" "subnet" {
+  count   = var.subnet_id == "" ? 1 : 0
   name    = var.subnet_name
   region  = var.region
   project = var.project_id
 }
 
-# References to VPC resources (created and managed by vpc-infra module)
+# Local variables: use provided IDs if available, otherwise use data source
 locals {
-  vpc_id      = data.google_compute_network.vpc.id
-  vpc_name    = data.google_compute_network.vpc.name
-  subnet_id   = data.google_compute_subnetwork.subnet.id
-  subnet_cidr = data.google_compute_subnetwork.subnet.ip_cidr_range
+  network_id = var.network_id != "" ? var.network_id : data.google_compute_network.vpc[0].id
+  subnet_id  = var.subnet_id != "" ? var.subnet_id : data.google_compute_subnetwork.subnet[0].id
+}
+
+# Additional VPC reference data (use data source when available)
+locals {
+  vpc_name    = var.vpc_name != "" ? var.vpc_name : data.google_compute_network.vpc[0].name
+  subnet_cidr = var.subnet_id != "" ? "" : data.google_compute_subnetwork.subnet[0].ip_cidr_range
 }
 
 # =============================================================================
@@ -233,7 +240,7 @@ resource "google_compute_address" "postgres_external_ip" {
 # =============================================================================
 
 resource "google_service_account" "postgres_vm" {
-  project      = var.project_id
+  project = var.project_id
   # Limit account_id to 30 chars: use substr to truncate instance_name if needed
   account_id   = substr("pg-${var.instance_name}-vm", 0, 30)
   display_name = "PostgreSQL VM - ${var.instance_name}"
