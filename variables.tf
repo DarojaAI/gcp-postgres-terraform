@@ -121,11 +121,19 @@ variable "vpc_name" {
 variable "subnet_name" {
   description = "Name of existing subnet"
   type        = string
+  default     = ""
+}
 
-  validation {
-    condition     = var.subnet_name != ""
-    error_message = "subnet_name is required and cannot be empty."
-  }
+variable "network_id" {
+  description = "Full resource ID of VPC network (optional, skips data source lookup)"
+  type        = string
+  default     = ""
+}
+
+variable "subnet_id" {
+  description = "Full resource ID of subnet (optional, skips data source lookup)"
+  type        = string
+  default     = ""
 }
 
 variable "vpc_connector_cidr" {
