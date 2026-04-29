@@ -448,7 +448,6 @@ resource "google_compute_instance" "postgres" {
     local.subnet_id,
     google_storage_bucket.postgres_backups,
     google_compute_disk.postgres_data,
-    google_vpc_access_connector.postgres_connector[0]
   ]
 }
 
