@@ -234,7 +234,8 @@ resource "google_compute_address" "postgres_external_ip" {
 
 resource "google_service_account" "postgres_vm" {
   project      = var.project_id
-  account_id   = "pg-${var.instance_name}-vm"
+  # Limit account_id to 30 chars: use substr to truncate instance_name if needed
+  account_id   = substr("pg-${var.instance_name}-vm", 0, 30)
   display_name = "PostgreSQL VM - ${var.instance_name}"
   description  = "Service account for PostgreSQL VM ${var.instance_name}"
 }
