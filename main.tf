@@ -151,3 +151,9 @@ output "instance_metadata" {
   description = "Complete instance metadata"
   value       = module.postgres_module.instance_metadata
 }
+
+output "postgres_password_secret" {
+  description = "Fully qualified Secret Manager reference for PostgreSQL password"
+  value       = try("projects/${module.postgres_module.project_id}/secrets/${module.postgres_module.secrets["password"]}", "")
+  sensitive   = true
+}
