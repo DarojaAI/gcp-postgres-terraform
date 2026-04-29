@@ -11,71 +11,32 @@
 module "postgres_module" {
   source = "./terraform"
 
-  # Required variables
-  project_id    = var.project_id
-  instance_name = var.instance_name
-  region        = var.region
-  zone          = var.zone
-  environment   = var.environment
-  repo_prefix   = var.repo_prefix
+  project_id  = var.project_id
+  region      = var.region
+  zone        = var.zone
+  environment = var.environment
+  repo_prefix = var.repo_prefix
 
-  # VPC configuration
   vpc_name    = var.vpc_name
   subnet_name = var.subnet_name
 
-  # PostgreSQL configuration
+  instance_name = var.instance_name
+  machine_type  = var.machine_type
+
   postgres_version     = var.postgres_version
   postgres_db_name     = var.postgres_db_name
   postgres_db_user     = var.postgres_db_user
   postgres_db_password = var.postgres_db_password
 
-  # Machine configuration
-  machine_type = var.machine_type
   disk_size_gb = var.disk_size_gb
-  disk_type    = var.disk_type
 
-  # Networking
-  assign_external_ip         = var.assign_external_ip
-  allow_postgres_from_cidrs  = var.allow_postgres_from_cidrs
-  allow_ssh_from_cidrs       = var.allow_ssh_from_cidrs
-  vpc_connector_min_instances = var.vpc_connector_min_instances
-  vpc_connector_max_instances = var.vpc_connector_max_instances
+  assign_external_ip = var.assign_external_ip
 
-  # Backup configuration
-  enable_backups           = var.enable_backups
-  backup_bucket_name       = var.backup_bucket_name
-  backup_retention_days    = var.backup_retention_days
-  backup_schedule          = var.backup_schedule
-  snapshot_retention_days  = var.snapshot_retention_days
-
-  # Monitoring
-  enable_monitoring            = var.enable_monitoring
-  disk_usage_alert_threshold   = var.disk_usage_alert_threshold
-  alert_notification_channels  = var.alert_notification_channels
-
-  # PostgreSQL runtime configuration
-  max_connections       = var.max_connections
-  shared_buffers        = var.shared_buffers
-  work_mem              = var.work_mem
-  maintenance_work_mem  = var.maintenance_work_mem
-
-  # Schema injection
-  init_sql         = var.init_sql
-  pgvector_enabled = var.pgvector_enabled
-
-  # Advanced
-  enable_cloud_nat                      = var.enable_cloud_nat
-  preemptible                           = var.preemptible
-  github_actions_backup_reader_sa       = var.github_actions_backup_reader_sa
-  enable_oslogin                        = var.enable_oslogin
-  vpc_connector_cidr                    = var.vpc_connector_cidr
-
-  # Labels
   labels = var.labels
 }
 
 # =============================================================================
-# Re-export all outputs from nested module
+# Re-export key outputs from nested module
 # =============================================================================
 
 output "instance_name" {
@@ -88,34 +49,61 @@ output "instance_id" {
   value       = module.postgres_module.instance_id
 }
 
-output "postgres_internal_ip" {
+output "internal_ip" {
   description = "PostgreSQL internal IP address"
-  value       = module.postgres_module.postgres_internal_ip
+  value       = module.postgres_module.internal_ip
+}
+
+output "postgres_internal_ip" {
+  description = "PostgreSQL internal IP address (alias)"
+  value       = module.postgres_module.internal_ip
+}
+
+output "external_ip" {
+  description = "PostgreSQL external IP address"
+  value       = module.postgres_module.external_ip
 }
 
 output "postgres_external_ip" {
-  description = "PostgreSQL external IP address (if assigned)"
-  value       = module.postgres_module.postgres_external_ip
+  description = "PostgreSQL external IP address (alias)"
+  value       = module.postgres_module.external_ip
 }
 
-output "postgres_password_secret" {
-  description = "Secret Manager secret reference for PostgreSQL password"
-  value       = module.postgres_module.postgres_password_secret
+output "connection_info" {
+  description = "Connection information"
+  value       = module.postgres_module.connection_info
 }
 
-output "postgres_user_secret" {
-  description = "Secret Manager secret reference for PostgreSQL user"
-  value       = module.postgres_module.postgres_user_secret
+output "connection_string_internal" {
+  description = "PostgreSQL connection string (internal VPC)"
+  value       = module.postgres_module.connection_string_internal
+  sensitive   = true
 }
 
-output "postgres_db_secret" {
-  description = "Secret Manager secret reference for PostgreSQL database"
-  value       = module.postgres_module.postgres_db_secret
+output "connection_string_external" {
+  description = "PostgreSQL connection string (external IP if assigned)"
+  value       = module.postgres_module.connection_string_external
+  sensitive   = true
 }
 
-output "postgres_host_secret" {
-  description = "Secret Manager secret reference for PostgreSQL host"
-  value       = module.postgres_module.postgres_host_secret
+output "psql_command_internal" {
+  description = "psql command for internal connection"
+  value       = module.postgres_module.psql_command_internal
+}
+
+output "psql_command_external" {
+  description = "psql command for external connection"
+  value       = module.postgres_module.psql_command_external
+}
+
+output "ssh_command" {
+  description = "SSH command to connect to PostgreSQL VM"
+  value       = module.postgres_module.ssh_command
+}
+
+output "ssh_user" {
+  description = "SSH user for PostgreSQL VM"
+  value       = module.postgres_module.ssh_user
 }
 
 output "backup_bucket_name" {
@@ -123,12 +111,43 @@ output "backup_bucket_name" {
   value       = module.postgres_module.backup_bucket_name
 }
 
-output "vpc_connector_name" {
-  description = "VPC Access Connector name"
-  value       = module.postgres_module.vpc_connector_name
+output "backup_bucket_url" {
+  description = "GCS bucket URL for backups"
+  value       = module.postgres_module.backup_bucket_url
+}
+
+output "backup_retention_days" {
+  description = "Backup retention period"
+  value       = module.postgres_module.backup_retention_days
+}
+
+output "postgres_version" {
+  description = "PostgreSQL version"
+  value       = module.postgres_module.postgres_version
+}
+
+output "pgvector_enabled" {
+  description = "Whether pgvector extension is enabled"
+  value       = module.postgres_module.pgvector_enabled
+}
+
+output "service_account_email" {
+  description = "PostgreSQL VM service account email"
+  value       = module.postgres_module.service_account_email
 }
 
 output "postgres_service_account" {
-  description = "PostgreSQL VM service account email"
-  value       = module.postgres_module.postgres_service_account
+  description = "PostgreSQL VM service account email (alias)"
+  value       = module.postgres_module.service_account_email
+}
+
+output "secrets" {
+  description = "Secret Manager secrets map"
+  value       = module.postgres_module.current_secrets
+  sensitive   = true
+}
+
+output "instance_metadata" {
+  description = "Complete instance metadata"
+  value       = module.postgres_module.instance_metadata
 }
