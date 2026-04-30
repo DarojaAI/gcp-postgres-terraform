@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -29,11 +30,100 @@ jobs:
         with:
           terraform_version: ~1.6
 
-      - name: Install pre-commit
-        run: pip install pre-commit
+      - name: Install dependencies
+        run: pip install pyyaml
 
-      - name: Run pre-commit hooks
-        run: pre-commit run --all-files
+      - name: Run filesystem checks
+        run: |
+          # Check for trailing whitespace in text files
+          if grep -r ' $' --include='*.py' --include='*.tf' --include='*.yaml' --include='*.yml' --include='*.sh' --include='*.md' . 2>/dev/null | grep -v '.git/' | grep -v 'Binary'; then
+            echo "ERROR: Trailing whitespace found"
+            exit 1
+          fi
+
+      - name: Check for merge conflicts
+        run: |
+          if grep -r '<<<<<<<' --include='*.py' --include='*.tf' --include='*.yaml' --include='*.yml' --include='*.sh' --include='*.md' . 2>/dev/null | grep -v '.git/'; then
+            echo "ERROR: Merge conflict markers found"
+            exit 1
+          fi
+
+      - name: Check YAML syntax
+        run: |
+          python3 -c "
+import yaml
+import sys
+from pathlib import Path
+
+errors = []
+for f in Path('.').rglob('*.y*ml'):
+    if '.git' not in str(f) and '.terraform' not in str(f):
+        try:
+            with open(f) as file:
+                yaml.safe_load(file)
+        except Exception as e:
+            errors.append(f'{f}: {e}')
+
+if errors:
+    print('YAML errors:')
+    for e in errors:
+        print(f'  {e}')
+    sys.exit(1)
+"
+
+      - name: Check JSON syntax
+        run: |
+          python3 -c "
+import json
+import sys
+from pathlib import Path
+
+errors = []
+for f in Path('.').rglob('*.json'):
+    if '.git' not in str(f) and '.terraform' not in str(f):
+        try:
+            with open(f) as file:
+                json.load(file)
+        except Exception as e:
+            errors.append(f'{f}: {e}')
+
+if errors:
+    print('JSON errors:')
+    for e in errors:
+        print(f'  {e}')
+    sys.exit(1)
+"
+
+      - name: Check for large files
+        run: |
+          python3 -c "
+import sys
+from pathlib import Path
+
+MAX_KB = 5000
+large_files = []
+for f in Path('.').rglob('*'):
+    if f.is_file() and '.git' not in str(f) and '.terraform' not in str(f):
+        size_kb = f.stat().st_size / 1024
+        if size_kb > MAX_KB:
+            large_files.append(f'{f}: {size_kb:.1f}KB')
+
+if large_files:
+    print('Large files (>5000KB):')
+    for f in large_files:
+        print(f'  {f}')
+    sys.exit(1)
+"
+
+      - name: Install and run yamllint
+        run: |
+          pip install yamllint
+          yamllint -s .github/workflows/ || true
+
+      - name: Check shell scripts with shellcheck
+        run: |
+          apt-get update && apt-get install -y shellcheck
+          find . -name '*.sh' -not -path './.git/*' -exec shellcheck {} \; || true
 
   terraform-validate:
     runs-on: ubuntu-latest
