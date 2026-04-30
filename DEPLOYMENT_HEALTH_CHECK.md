@@ -140,7 +140,7 @@ ACTION REQUIRED:
    ↓
 3. VM boots and startup script runs (2-5 minutes)
    - Installs PostgreSQL
-   - Enables extensions  
+   - Enables extensions
    - Starts service
    - Logs everything to /var/log/postgres-setup.log
    - Exits 0 on success, non-zero on failure
