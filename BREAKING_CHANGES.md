@@ -1,6 +1,6 @@
 # Breaking Changes - VPC Infrastructure Refactor
 
-**Release**: v1.27.0  
+**Release**: v1.27.0
 **Date**: 2026-04-26
 
 ## Summary
@@ -50,14 +50,14 @@ module "postgres" {
 ```hcl
 module "postgres" {
   source = "github.com/DarojaAI/gcp-postgres-terraform//terraform?ref=v1.26.0"
-  
+
   project_id          = var.project_id
   instance_name       = "my-postgres"
-  
+
   # Optional - created if empty
   vpc_name = ""  # Create new VPC
   subnet_cidr = "10.8.0.0/24"
-  
+
   # VPC connector configured here
   vpc_connector_cidr = "10.8.1.0/28"
 }
@@ -69,10 +69,10 @@ module "postgres" {
 # Step 1: Create VPC infrastructure
 module "vpc" {
   source = "github.com/DarojaAI/vpc-infra//terraform?ref=v1.0.0"
-  
+
   project_id  = var.project_id
   vpc_name    = "my-vpc"
-  
+
   subnets = [
     {
       name = "postgres-subnet"
@@ -84,14 +84,14 @@ module "vpc" {
 # Step 2: Reference VPC in PostgreSQL module
 module "postgres" {
   source = "github.com/DarojaAI/gcp-postgres-terraform//terraform?ref=v1.27.0"
-  
+
   project_id          = var.project_id
   instance_name       = "my-postgres"
-  
+
   # REQUIRED: From vpc-infra
   vpc_name    = module.vpc.vpc_name
   subnet_name = module.vpc.subnet_names[0]
-  
+
   # PostgreSQL config
   postgres_version = "15"
   postgres_db_name = "mydb"

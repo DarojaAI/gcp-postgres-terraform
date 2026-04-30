@@ -51,10 +51,10 @@ jobs:
           PROJECT_ID="${{ vars.GCP_PROJECT_ID }}"
           REGION="${{ vars.GCP_REGION || 'us-central1' }}"
           ZONE="${REGION}-b"
-          
+
           # Instance naming pattern
           INSTANCE_NAME="postgres-vm-${ENV}"
-          
+
           echo "environment=${ENV}" >> $GITHUB_OUTPUT
           echo "project_id=${PROJECT_ID}" >> $GITHUB_OUTPUT
           echo "region=${REGION}" >> $GITHUB_OUTPUT
@@ -67,21 +67,21 @@ jobs:
           INSTANCE="${{ steps.env.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
-          
+
           echo "🔍 Checking VM status: $INSTANCE..."
-          
+
           STATUS=$(gcloud compute instances describe "$INSTANCE" \
             --zone="$ZONE" \
             --project="$PROJECT" \
             --format='value(status)' 2>/dev/null || echo "NOT_FOUND")
-          
+
           echo "vm_status=${STATUS}" >> $GITHUB_OUTPUT
-          
+
           if [[ "$STATUS" != "RUNNING" ]]; then
             echo "❌ VM is not running. Status: $STATUS"
             exit 1
           fi
-          
+
           echo "✅ VM is running"
 
       - name: Check PostgreSQL service is active
@@ -90,16 +90,16 @@ jobs:
           INSTANCE="${{ steps.env.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
-          
+
           echo "🔍 Checking PostgreSQL service status..."
-          
+
           SERVICE_STATUS=$(gcloud compute ssh "$INSTANCE" \
             --zone="$ZONE" \
             --project="$PROJECT" \
             --command="systemctl is-active postgresql* 2>/dev/null | grep -q active && echo active || echo inactive" 2>&1 || echo "error")
-          
+
           echo "pg_service_status=${SERVICE_STATUS}" >> $GITHUB_OUTPUT
-          
+
           if [[ "$SERVICE_STATUS" == "active" ]]; then
             echo "✅ PostgreSQL service is active"
           else
@@ -112,14 +112,14 @@ jobs:
           INSTANCE="${{ steps.env.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
-          
+
           echo "🔍 Checking if PostgreSQL is listening on port 5432..."
-          
+
           LISTENING=$(gcloud compute ssh "$INSTANCE" \
             --zone="$ZONE" \
             --project="$PROJECT" \
             --command="sudo ss -tlnp 2>/dev/null | grep 5432" 2>&1 || echo "")
-          
+
           if [[ -n "$LISTENING" ]]; then
             echo "✅ PostgreSQL is listening on port 5432"
             echo "pg_listening=true" >> $GITHUB_OUTPUT
@@ -140,14 +140,14 @@ jobs:
           INSTANCE="${{ steps.env.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
-          
+
           echo "🔍 Checking PostgreSQL version..."
-          
+
           VERSION=$(gcloud compute ssh "$INSTANCE" \
             --zone="$ZONE" \
             --project="$PROJECT" \
             --command="sudo -u postgres psql -c 'SELECT version();' 2>&1" || echo "ERROR")
-          
+
           if [[ "$VERSION" == *"PostgreSQL"* ]]; then
             echo "✅ PostgreSQL is responding"
             echo "pg_version_check=success" >> $GITHUB_OUTPUT
@@ -165,9 +165,9 @@ jobs:
           INSTANCE="${{ steps.env.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
-          
+
           echo "📋 Checking startup script logs for errors..."
-          
+
           gcloud compute ssh "$INSTANCE" \
             --zone="$ZONE" \
             --project="$PROJECT" \
@@ -179,18 +179,18 @@ jobs:
           ================================================================
           🔍 DEPLOYMENT HEALTH CHECK REPORT
           ================================================================
-          
+
           Environment:     ${{ steps.env.outputs.environment }}
           Instance:        ${{ steps.env.outputs.instance_name }}
           Zone:            ${{ steps.env.outputs.zone }}
-          
+
           STATUS:
           --------
           VM Status:              ${{ steps.vm-status.outputs.vm_status }}
           PostgreSQL Service:     ${{ steps.pg-service.outputs.pg_service_status }}
           PostgreSQL Listening:   ${{ steps.pg-listen.outputs.pg_listening }}
           PostgreSQL Version:     ${{ steps.pg-version.outputs.pg_version_check }}
-          
+
           ================================================================
           EOF
 

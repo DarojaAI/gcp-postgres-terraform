@@ -53,15 +53,15 @@ echo ""
 # ============================================
 echo "[$(date -Iseconds)] ===== Step 1: System Updates ====="
 echo "[$(date -Iseconds)] Updating package lists..."
-apt-get update || { 
-  echo "[$(date -Iseconds)] ERROR: apt-get update failed"; 
-  exit 1; 
+apt-get update || {
+  echo "[$(date -Iseconds)] ERROR: apt-get update failed";
+  exit 1;
 }
 
 echo "[$(date -Iseconds)] Upgrading packages..."
-apt-get upgrade -y || { 
-  echo "[$(date -Iseconds)] ERROR: apt-get upgrade failed"; 
-  exit 1; 
+apt-get upgrade -y || {
+  echo "[$(date -Iseconds)] ERROR: apt-get upgrade failed";
+  exit 1;
 }
 echo "[$(date -Iseconds)] ✅ System updated successfully"
 
@@ -129,31 +129,31 @@ fi
 echo "[$(date -Iseconds)] ===== Step 5: Format and Mount Data Disk ====="
 if [[ -b /dev/$DATA_DISK_DEVICE ]]; then
   echo "[$(date -Iseconds)] Found data disk: /dev/$DATA_DISK_DEVICE"
-  
+
   if ! grep -q "/dev/$DATA_DISK_DEVICE" /etc/fstab 2>/dev/null; then
     echo "[$(date -Iseconds)] Formatting disk /dev/$DATA_DISK_DEVICE..."
     mkfs.ext4 -F "/dev/$DATA_DISK_DEVICE" || {
       echo "[$(date -Iseconds)] ERROR: Failed to format disk /dev/$DATA_DISK_DEVICE"
       exit 1
     }
-    
+
     echo "[$(date -Iseconds)] Creating mount point: $MOUNT_POINT"
     mkdir -p "$MOUNT_POINT"
-    
+
     echo "[$(date -Iseconds)] Adding to /etc/fstab"
     echo "/dev/$DATA_DISK_DEVICE $MOUNT_POINT ext4 defaults,nofail 0 0" >> /etc/fstab
-    
+
     echo "[$(date -Iseconds)] Mounting disk..."
     mount "$MOUNT_POINT" || {
       echo "[$(date -Iseconds)] ERROR: Failed to mount $MOUNT_POINT"
       exit 1
     }
-    
+
     echo "[$(date -Iseconds)] ✅ Disk mounted successfully"
   else
     echo "[$(date -Iseconds)] ℹ️  Disk already mounted"
   fi
-  
+
   # Verify mount
   if ! mountpoint -q "$MOUNT_POINT"; then
     echo "[$(date -Iseconds)] ERROR: Mount point $MOUNT_POINT is not accessible"
@@ -319,7 +319,7 @@ if [[ -n "$BACKUP_BUCKET" ]] && [[ "$BACKUP_BUCKET" != "null" ]]; then
     echo "[$(date -Iseconds)] ERROR: Failed to install pgbackrest"
     exit 1
   }
-  
+
   echo "[$(date -Iseconds)] Configuring pgBackRest..."
   cat > "/etc/pgbackrest.conf" << PGBACKREST_EOF
 [global]
@@ -340,7 +340,7 @@ PGBACKREST_EOF
   mkdir -p /var/log/pgbackrest
   chown postgres:postgres /var/log/pgbackrest
   chmod 750 /var/log/pgbackrest
-  
+
   echo "[$(date -Iseconds)] ✅ pgBackRest configured"
 fi
 
