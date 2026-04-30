@@ -43,6 +43,7 @@ gcp-postgres-terraform/
 | `pgvector_enabled` | No | `true` | Enable pgvector extension |
 | `github_actions_enabled` | No | `true` | Create WIF for GitHub Actions |
 | `github_repo` | No | `patelmm79/gcp-postgres-terraform` | GitHub repo |
+
 ## CI/CD Setup
 
 **See [docs/CI-CD-SETUP.md](./docs/CI-CD-SETUP.md)** — required CI/CD steps for any repo
@@ -50,3 +51,31 @@ using this module with GitHub Actions + WIF. Covers project-level IAM (Step 1),
 module configuration with `github_actions_backup_reader_sa` (Step 2), bucket-level
 IAM bootstrap (Step 3), and terraform plan/apply (Step 4).
 
+## Release Process
+
+This project uses **Release Please** for automated semantic versioning based on conventional commits.
+
+### Conventional Commits
+
+Use these commit types to trigger version bumps:
+
+| Commit Type | Release Type | Example |
+|-------------|--------------|---------|
+| `fix:` | patch (1.29.0 → 1.29.1) | `fix: resolve connection timeout issue` |
+| `feat:` | minor (1.29.0 → 1.30.0) | `feat: add support for backup restoration` |
+| `feat!:` or `BREAKING CHANGE:` | major (1.29.0 → 2.0.0) | `feat!: change variable name from db_name to instance_name` |
+| `docs:`, `chore:`, `refactor:` | no release | `docs: update README with new examples` |
+
+### How It Works
+
+1. **Push to main/master** → Release Please analyzes commits and creates a PR with version changes
+2. **Merge the PR** → Release Please creates a `v{major}.{minor}.{patch}` tag
+3. **Tag push** → GitHub Release is automatically created with changelog
+
+### Check Current Version
+
+```bash
+cat VERSION
+# or
+git describe --tags --abbrev=0
+```
