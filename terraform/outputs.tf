@@ -243,3 +243,19 @@ output "instance_metadata" {
     instance_url        = "https://console.cloud.google.com/compute/instancesDetail/zones/${google_compute_instance.postgres.zone}/instances/${google_compute_instance.postgres.name}?project=${var.project_id}"
   }
 }
+
+# =============================================================================
+# Backwards Compatibility Aliases
+# =============================================================================
+# These outputs provide backwards compatibility for code that expects the
+# older naming convention. New code should use internal_ip, external_ip, etc.
+
+output "postgres_internal_ip" {
+  description = "DEPRECATED: Use internal_ip instead. Internal IP address of PostgreSQL VM"
+  value       = google_compute_address.postgres_ip.address
+}
+
+output "postgres_password_secret" {
+  description = "DEPRECATED: Use secrets[\"password\"] instead. PostgreSQL password secret ID"
+  value       = google_secret_manager_secret.postgres_password.id
+}
