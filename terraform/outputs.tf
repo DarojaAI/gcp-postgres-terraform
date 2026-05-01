@@ -9,7 +9,7 @@ output "instance_name" {
 
 output "subnet_id" {
   description = "ID of the subnet (for Cloud Run connector)"
-  value       = local.subnet_id
+  value       = var.subnet_id
 }
 
 output "project_id" {
@@ -33,7 +33,7 @@ output "zone" {
 
 output "vpc_network_name" {
   description = "Name of the VPC network"
-  value       = local.vpc_name
+  value       = var.vpc_name
 }
 
 output "vpc_subnet_name" {

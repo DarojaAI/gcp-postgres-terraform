@@ -60,33 +60,9 @@ resource "google_project_service" "secretmanager" {
 # VPC Network (created and managed by vpc-infra module)
 # =============================================================================
 
-# Data source for existing VPC (required, created by vpc-infra)
-# Optional: Skip data source lookup if IDs provided directly
-data "google_compute_network" "vpc" {
-  count   = var.network_id == "" ? 1 : 0
-  name    = var.vpc_name
-  project = var.project_id
-}
-
-# Optional: Skip data source lookup if subnet_id provided directly
-data "google_compute_subnetwork" "subnet" {
-  count   = var.subnet_id == "" ? 1 : 0
-  name    = var.subnet_name
-  region  = var.region
-  project = var.project_id
-}
-
-# Local variables: use provided IDs if available, otherwise use data source
-locals {
-  network_id = var.network_id != "" ? var.network_id : data.google_compute_network.vpc[0].id
-  subnet_id  = var.subnet_id != "" ? var.subnet_id : data.google_compute_subnetwork.subnet[0].id
-}
-
-# Additional VPC reference data (use data source when available)
-locals {
-  vpc_name    = var.vpc_name != "" ? var.vpc_name : data.google_compute_network.vpc[0].name
-  subnet_cidr = var.subnet_id != "" ? "" : data.google_compute_subnetwork.subnet[0].ip_cidr_range
-}
+# Network and subnet IDs must be provided by the caller (e.g., GitHub Actions workflow).
+# This ensures terraform count expressions are deterministic at plan time.
+# The caller fetches existing IDs via gcloud and passes them as TF_VAR_network_id and TF_VAR_subnet_id.
 
 # =============================================================================
 # Firewall Rules
@@ -95,7 +71,7 @@ locals {
 resource "google_compute_firewall" "allow_postgres" {
   project = var.project_id
   name    = "pg-${var.instance_name}-allow-postgres"
-  network = local.vpc_name
+  network = var.vpc_name
 
   allow {
     protocol = "tcp"
@@ -109,7 +85,7 @@ resource "google_compute_firewall" "allow_postgres" {
   # 4. Extra external sources (if configured)
   # IPv6 entries are filtered out (empty strings removed by compact)
   source_ranges = compact(distinct(concat(
-    [local.subnet_cidr],
+    [var.subnet_cidr],
     var.vpc_connector_cidr != "" ? [var.vpc_connector_cidr] : [],
     local.github_actions_cidrs,
     var.allow_postgres_from_cidrs
@@ -121,7 +97,7 @@ resource "google_compute_firewall" "allow_ssh" {
   project = var.project_id
   count   = length(var.allow_ssh_from_cidrs) > 0 ? 1 : 0
   name    = "pg-${var.instance_name}-allow-ssh"
-  network = local.vpc_name
+  network = var.vpc_name
 
   allow {
     protocol = "tcp"
@@ -136,7 +112,7 @@ resource "google_compute_firewall" "allow_egress" {
   project = var.project_id
   count   = var.enable_cloud_nat ? 1 : 0
   name    = "pg-${var.instance_name}-allow-egress"
-  network = local.vpc_name
+  network = var.vpc_name
 
   direction = "EGRESS"
 
@@ -222,7 +198,7 @@ resource "google_compute_address" "postgres_ip" {
   project      = var.project_id
   name         = "pg-${var.instance_name}-ip"
   address_type = "INTERNAL"
-  subnetwork   = local.subnet_id
+  subnetwork   = var.subnet_id
   region       = var.region
 }
 
@@ -362,7 +338,7 @@ resource "google_compute_instance" "postgres" {
   }
 
   network_interface {
-    subnetwork = local.subnet_id
+    subnetwork = var.subnet_id
     network_ip = google_compute_address.postgres_ip.address
 
     dynamic "access_config" {
@@ -417,7 +393,6 @@ resource "google_compute_instance" "postgres" {
 
   depends_on = [
     google_project_service.compute,
-    local.subnet_id,
     google_storage_bucket.postgres_backups,
     google_compute_disk.postgres_data
   ]

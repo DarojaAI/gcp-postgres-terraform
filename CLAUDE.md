@@ -7,7 +7,7 @@
 1. `terraform fmt -check -diff` — fix all formatting
 2. `terraform init -backend=false` — verify syntax and variable references
 3. `terraform validate` — verify all module references and outputs
-4. `grep -rn 'backend "' *.tf` — confirm ZERO backend blocks exist in the module
+4. `grep -rn 'backend "' .` — confirm ZERO backend blocks exist anywhere in the module (root or nested)
 
 **Module constraint:** This repo is consumed as a git module. A module MUST NOT have a `backend` block. Backend is always provided by the consuming root module.
 
@@ -20,18 +20,23 @@
 
 ## Repository Structure
 
+This repo follows the [HashiCorp standard module structure](https://developer.hashicorp.com/terraform/language/modules/develop/structure):
+the root wraps a nested implementation so consumers can `source = "github.com/.../gcp-postgres-terraform?ref=v1.x"`.
+
 ```
 gcp-postgres-terraform/
-└── terraform/              ← THE MODULE (used as: ?ref=v1.x)
-    ├── main.tf            ← module call block (NO backend)
+├── main.tf                 ← root wrapper: calls ./terraform and re-exports outputs
+├── variables.tf            ← root variables (re-declared from nested)
+├── versions.tf             ← provider version constraints
+├── VERSION                 ← managed by Release Please
+└── terraform/              ← nested implementation
+    ├── postgres_module.tf  ← actual provisioning logic (compute, IAM, GCS, secrets)
     ├── variables.tf
     ├── outputs.tf
     ├── versions.tf
-    ├── postgres_module.tf ← actual provisioning logic
-    ├── github_actions_wif.tf
-    ├── scripts/
-    │   └── postgres_init.sh
-    └── backend.tf.example ← rename to backend.tf for local dev
+    ├── dev.tfvars / prod.tfvars
+    ├── scripts/postgres_init.sh
+    └── backend.tf.example  ← rename to backend.tf for local dev only
 ```
 
 ## Key Variables
@@ -39,10 +44,16 @@ gcp-postgres-terraform/
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `project_id` | Yes | — | GCP project |
-| `postgres_db_password` | Yes | — | DB password |
+| `instance_name` | Yes | — | PostgreSQL instance name (validated regex) |
+| `vpc_name` | Yes | — | Existing VPC network name |
+| `network_id` | Yes | — | Full VPC resource ID (required to avoid `count` non-determinism — see commit c78b1ba) |
+| `subnet_id` | Yes | — | Full subnet resource ID (same reason as `network_id`) |
+| `postgres_db_password` | Yes | — | DB password (sensitive) |
 | `pgvector_enabled` | No | `true` | Enable pgvector extension |
-| `github_actions_enabled` | No | `true` | Create WIF for GitHub Actions |
-| `github_repo` | No | `patelmm79/gcp-postgres-terraform` | GitHub repo |
+| `enable_backups` | No | `true` | Daily backups to GCS |
+| `github_actions_backup_reader_sa` | No | `""` | GHA deploy SA email needing read access to the backup bucket |
+
+**Note:** `github_actions_enabled` / `github_repo` appear in `*.tfvars` but are **not** module variables — there are no WIF resources in this repo. WIF is configured in the consuming root module (see [docs/CI-CD-SETUP.md](./docs/CI-CD-SETUP.md)).
 
 ## CI/CD Setup
 
@@ -50,6 +61,17 @@ gcp-postgres-terraform/
 using this module with GitHub Actions + WIF. Covers project-level IAM (Step 1),
 module configuration with `github_actions_backup_reader_sa` (Step 2), bucket-level
 IAM bootstrap (Step 3), and terraform plan/apply (Step 4).
+
+## CI Workflows (`.github/workflows/`)
+
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `pre-commit.yml` | PR | Runs pre-commit hooks (fmt, validate, etc.) |
+| `terraform-plan.yml` | manual | Terraform plan (disabled on PRs — see commit 9ecd9d0) |
+| `terraform-apply.yml` | manual | Terraform apply |
+| `release-please.yml` | push to main | Release Please version PRs and tags |
+| `deploy-production.yml` | manual | Production deployment |
+| `validate-deployment.yml` | post-deploy | Smoke-test deployed instance |
 
 ## Release Process
 

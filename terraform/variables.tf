@@ -142,15 +142,33 @@ variable "subnet_name" {
 }
 
 variable "network_id" {
-  description = "Full resource ID of VPC network (optional, skips data source lookup)"
+  description = "Full resource ID of VPC network (required for deterministic terraform plan)"
   type        = string
-  default     = ""
+
+  validation {
+    condition     = var.network_id != ""
+    error_message = "network_id is required. The caller must fetch the network ID and pass it via TF_VAR_network_id."
+  }
 }
 
 variable "subnet_id" {
-  description = "Full resource ID of subnet (optional, skips data source lookup)"
+  description = "Full resource ID of subnet (required for deterministic terraform plan)"
   type        = string
-  default     = ""
+
+  validation {
+    condition     = var.subnet_id != ""
+    error_message = "subnet_id is required. The caller must fetch the subnet ID and pass it via TF_VAR_subnet_id."
+  }
+}
+
+variable "subnet_cidr" {
+  description = "CIDR range of the subnet (required for firewall rules to allow VPC-internal connections)"
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.subnet_cidr, 0))
+    error_message = "subnet_cidr must be a valid CIDR range (e.g., '10.0.0.0/24')"
+  }
 }
 
 variable "vpc_connector_cidr" {
