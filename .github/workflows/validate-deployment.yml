@@ -52,19 +52,38 @@ jobs:
           REGION="${{ vars.GCP_REGION || 'us-central1' }}"
           ZONE="${REGION}-b"
 
-          # Instance naming pattern
-          INSTANCE_NAME="postgres-vm-${ENV}"
-
           echo "environment=${ENV}" >> $GITHUB_OUTPUT
           echo "project_id=${PROJECT_ID}" >> $GITHUB_OUTPUT
           echo "region=${REGION}" >> $GITHUB_OUTPUT
           echo "zone=${ZONE}" >> $GITHUB_OUTPUT
+
+      - name: Get Terraform outputs
+        id: tf-outputs
+        run: |
+          # Initialize Terraform to read outputs
+          terraform init -backend=false -input=false
+
+          # Read instance name from Terraform output (not hardcoded)
+          INSTANCE_NAME=$(terraform output -raw instance_name)
+          INTERNAL_IP=$(terraform output -raw internal_ip)
+          DB_NAME=$(terraform output -raw connection_info | jq -r '.database')
+          DB_USER=$(terraform output -raw connection_info | jq -r '.user')
+
           echo "instance_name=${INSTANCE_NAME}" >> $GITHUB_OUTPUT
+          echo "internal_ip=${INTERNAL_IP}" >> $GITHUB_OUTPUT
+          echo "db_name=${DB_NAME}" >> $GITHUB_OUTPUT
+          echo "db_user=${DB_USER}" >> $GITHUB_OUTPUT
+
+          echo "✅ Read outputs from Terraform:"
+          echo "   instance_name: $INSTANCE_NAME"
+          echo "   internal_ip: $INTERNAL_IP"
+          echo "   db_name: $DB_NAME"
+          echo "   db_user: $DB_USER"
 
       - name: Check VM instance is RUNNING
         id: vm-status
         run: |
-          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
 
@@ -87,7 +106,7 @@ jobs:
       - name: Check PostgreSQL service is active
         id: pg-service
         run: |
-          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
 
@@ -109,7 +128,7 @@ jobs:
       - name: Check PostgreSQL is listening on port 5432
         id: pg-listen
         run: |
-          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
 
@@ -137,7 +156,7 @@ jobs:
       - name: Check PostgreSQL version
         id: pg-version
         run: |
-          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
 
@@ -159,10 +178,174 @@ jobs:
             echo "Response: $VERSION"
           fi
 
+      - name: Check READY sentinel file
+        id: ready-sentinel
+        run: |
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+
+          echo "🔍 Checking READY sentinel file..."
+
+          READY_FILE=$(gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --command="cat /var/lib/postgres-setup/READY 2>/dev/null || echo 'NOT_FOUND'" 2>&1 || echo "SSH_ERROR")
+
+          if [[ "$READY_FILE" == "READY" ]]; then
+            echo "✅ Init script completed successfully (READY file found)"
+            echo "ready_sentinel=ready" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  READY sentinel not found - init may not have completed"
+            echo "   This could mean init is still running or failed mid-way"
+            echo "   READY file content: $READY_FILE"
+            echo "ready_sentinel=missing" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install PostgreSQL client
+        run: |
+          echo "🔍 Installing postgresql-client..."
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client > /dev/null 2>&1
+          echo "✅ PostgreSQL client installed"
+          psql --version
+
+      - name: Fetch DB password from Secret Manager
+        id: db-password
+        run: |
+          PROJECT="${{ steps.env.outputs.project_id }}"
+          SECRET_NAME="${{ vars.DB_PASSWORD_SECRET_NAME }}"
+
+          echo "🔍 Fetching database password from Secret Manager..."
+
+          if [[ -z "$SECRET_NAME" ]]; then
+            echo "⚠️  DB_PASSWORD_SECRET_NAME not set in workflow variables"
+            echo "   Skipping TCP connectivity test"
+            echo "db_password_available=false" >> $GITHUB_OUTPUT
+          else
+            PASSWORD=$(gcloud secrets versions access latest \
+              --project="$PROJECT" \
+              --secret="$SECRET_NAME" 2>&1)
+
+            if [[ $? -eq 0 ]] && [[ -n "$PASSWORD" ]]; then
+              echo "✅ Retrieved password from Secret Manager"
+              echo "db_password_available=true" >> $GITHUB_OUTPUT
+              # Store for later steps (will be used in same job)
+              echo "$PASSWORD" > /tmp/db_password
+            else
+              echo "⚠️  Failed to retrieve password (may lack secretmanager.secretAccessor role)"
+              echo "   Error: $PASSWORD"
+              echo "db_password_available=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: TCP connectivity test from runner
+        id: tcp-connect
+        run: |
+          # Only run if password is available
+          if [[ "${{ steps.db-password.outputs.db_password_available }}" != "true" ]]; then
+            echo "⚠️  Skipping TCP connectivity test (password not available)"
+            echo "tcp_connect=skipped" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          INTERNAL_IP="${{ steps.tf-outputs.outputs.internal_ip }}"
+          DB_NAME="${{ steps.tf-outputs.outputs.db_name }}"
+          DB_USER="${{ steps.tf-outputs.outputs.db_user }}"
+
+          echo "🔍 Testing TCP connectivity to $INTERNAL_IP:5432..."
+          echo "   Database: $DB_NAME"
+          echo "   User: $DB_USER"
+
+          PASSWORD=$(cat /tmp/db_password)
+
+          # Test TCP connection with password authentication
+          TCP_RESULT=$(PGPASSWORD="$PASSWORD" psql \
+            -h "$INTERNAL_IP" \
+            -U "$DB_USER" \
+            -d "$DB_NAME" \
+            -c "SELECT 1;" 2>&1 || echo "FAILED")
+
+          if [[ "$TCP_RESULT" == *"1 row"* ]]; then
+            echo "✅ TCP connectivity successful - firewall, listen_addresses, and password auth all work"
+            echo "tcp_connect=success" >> $GITHUB_OUTPUT
+          else
+            echo "❌ TCP connectivity failed"
+            echo "   Error: $TCP_RESULT"
+            echo "tcp_connect=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extension verification
+        id: ext-check
+        run: |
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+
+          echo "🔍 Checking pgvector extension..."
+
+          # Check if pgvector is enabled via variable
+          PGVECTOR_ENABLED=$(terraform output -raw pgvector_enabled 2>/dev/null || echo "false")
+
+          if [[ "$PGVECTOR_ENABLED" != "true" ]]; then
+            echo "ℹ️  pgvector not enabled in this deployment, skipping extension check"
+            echo "pgvector_extension=not_enabled" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          EXT_RESULT=$(gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --command="sudo -u postgres psql -c \"SELECT extname FROM pg_extension WHERE extname='vector';\" 2>&1" || echo "ERROR")
+
+          if [[ "$EXT_RESULT" == *"vector"* ]]; then
+            echo "✅ pgvector extension is installed"
+            echo "pgvector_extension=installed" >> $GITHUB_OUTPUT
+          else
+            echo "❌ pgvector extension NOT found"
+            echo "   Result: $EXT_RESULT"
+            echo "pgvector_extension=missing" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Library load verification
+        id: lib-check
+        run: |
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
+          ZONE="${{ steps.env.outputs.zone }}"
+          PROJECT="${{ steps.env.outputs.project_id }}"
+
+          echo "🔍 Checking pgvector shared preload library..."
+
+          # Check if pgvector is enabled via variable
+          PGVECTOR_ENABLED=$(terraform output -raw pgvector_enabled 2>/dev/null || echo "false")
+
+          if [[ "$PGVECTOR_ENABLED" != "true" ]]; then
+            echo "ℹ️  pgvector not enabled, skipping library check"
+            echo "pgvector_library=not_enabled" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          LIB_RESULT=$(gcloud compute ssh "$INSTANCE" \
+            --zone="$ZONE" \
+            --project="$PROJECT" \
+            --command="sudo -u postgres psql -t -c \"SELECT count(*) FROM pg_settings WHERE name='shared_preload_libraries' AND setting LIKE '%vector%';\" 2>&1" || echo "ERROR")
+
+          LIB_RESULT=$(echo "$LIB_RESULT" | xargs)  # Trim whitespace
+
+          if [[ "$LIB_RESULT" == "1" ]]; then
+            echo "✅ pgvector is loaded in shared_preload_libraries"
+            echo "pgvector_library=loaded" >> $GITHUB_OUTPUT
+          else
+            echo "❌ pgvector NOT loaded in shared_preload_libraries"
+            echo "   This means pgvector is installed but not loaded - PostgreSQL restart required"
+            echo "   Result: $LIB_RESULT"
+            echo "pgvector_library=not_loaded" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check startup script logs
         if: ${{ failure() }}
         run: |
-          INSTANCE="${{ steps.env.outputs.instance_name }}"
+          INSTANCE="${{ steps.tf-outputs.outputs.instance_name }}"
           ZONE="${{ steps.env.outputs.zone }}"
           PROJECT="${{ steps.env.outputs.project_id }}"
 
@@ -175,14 +358,15 @@ jobs:
 
       - name: Generate deployment health report
         run: |
-          cat << 'EOF'
+          cat << EOF
           ================================================================
           🔍 DEPLOYMENT HEALTH CHECK REPORT
           ================================================================
 
           Environment:     ${{ steps.env.outputs.environment }}
-          Instance:        ${{ steps.env.outputs.instance_name }}
+          Instance:        ${{ steps.tf-outputs.outputs.instance_name }}
           Zone:            ${{ steps.env.outputs.zone }}
+          Internal IP:     ${{ steps.tf-outputs.outputs.internal_ip }}
 
           STATUS:
           --------
@@ -190,12 +374,16 @@ jobs:
           PostgreSQL Service:     ${{ steps.pg-service.outputs.pg_service_status }}
           PostgreSQL Listening:   ${{ steps.pg-listen.outputs.pg_listening }}
           PostgreSQL Version:     ${{ steps.pg-version.outputs.pg_version_check }}
+          Init READY Sentinel:    ${{ steps.ready-sentinel.outputs.ready_sentinel }}
+          TCP Connectivity:       ${{ steps.tcp-connect.outputs.tcp_connect }}
+          pgvector Extension:     ${{ steps.ext-check.outputs.pgvector_extension }}
+          pgvector Library:       ${{ steps.lib-check.outputs.pgvector_library }}
 
           ================================================================
           EOF
 
       - name: Fail if PostgreSQL not ready
-        if: ${{ steps.pg-listen.outputs.pg_listening != 'true' || steps.pg-version.outputs.pg_version_check != 'success' }}
+        if: ${{ steps.pg-listen.outputs.pg_listening != 'true' || steps.pg-version.outputs.pg_version_check != 'success' || steps.tcp-connect.outputs.tcp_connect == 'failed' || steps.ext-check.outputs.pgvector_extension == 'missing' || steps.lib-check.outputs.pgvector_library == 'not_loaded' }}
         run: |
           echo "❌ DEPLOYMENT VALIDATION FAILED"
           echo ""
@@ -203,7 +391,7 @@ jobs:
           echo ""
           echo "⚠️  ACTION REQUIRED:"
           echo "  1. SSH into the instance:"
-          echo "     gcloud compute ssh ${{ steps.env.outputs.instance_name }} --zone=${{ steps.env.outputs.zone }}"
+          echo "     gcloud compute ssh ${{ steps.tf-outputs.outputs.instance_name }} --zone=${{ steps.env.outputs.zone }}"
           echo ""
           echo "  2. Check startup script logs:"
           echo "     sudo tail -100 /var/log/postgres-setup.log"
