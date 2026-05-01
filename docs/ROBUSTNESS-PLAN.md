@@ -5,20 +5,22 @@ deployment-robustness audit. The goal: make the module succeed first-time,
 catch failures at plan time rather than mid-deploy, and verify end-to-end
 connectivity rather than VM-local liveness.
 
-## Background — what's broken today
+## Background — resolved issues
 
-| # | Problem | Where |
+All 10 issues have been resolved as of v2.0.0:
+
+| # | Problem | Fix |
 |---|---|---|
-| 1 | Validator looks up wrong VM name (`postgres-vm-${ENV}` vs actual `pg-${var.instance_name}`) | `.github/workflows/validate-deployment.yml:56` |
-| 2 | Validator only checks VM-local Postgres state; doesn't prove TCP connectivity, password auth, or VPC reachability | `.github/workflows/validate-deployment.yml` |
-| 3 | Persistent data disk is mounted but never used — Postgres cluster lives on the 20 GB boot disk | `terraform/scripts/postgres_init.sh:170-180` |
-| 4 | No preflight check for Cloud NAT — VM hangs at `apt-get` if NAT missing and no external IP | module assumes consumer's `vpc-infra` module wired NAT |
-| 5 | Init script is one-shot non-idempotent — transient apt mirror flake = dead VM | `terraform/scripts/postgres_init.sh:16` (`set -euo pipefail`) |
-| 6 | `pgvector` extension name is wrong (it's `vector`) — `CREATE EXTENSION` silently fails | `terraform/scripts/postgres_init.sh:257`, `:388` |
-| 7 | No way to distinguish "init completed" from "Postgres up but init died mid-run" | no completion sentinel |
-| 8 | `data "http" github_actions_ips` adds non-determinism to plans + broad firewall surface | `terraform/postgres_module.tf:17-32` |
-| 9 | Production-hostile defaults: `pd-standard` HDD, `force_destroy = true` on backups, `log_statement = 'all'` | `variables.tf` + `postgres_init.sh:204` |
-| 10 | `null_resource.sync_secrets` creates a new Secret Manager version on every apply | `terraform/postgres_module.tf:536` |
+| 1 | Validator looks up wrong VM name | Now reads from `terraform output -raw instance_name` |
+| 2 | Validator only checks VM-local state | Added TCP connectivity test, extension verification, READY sentinel check |
+| 3 | Data disk mounted but unused | Pre-seeded `/etc/postgresql-common/createcluster.conf` with data_directory |
+| 4 | No preflight check for Cloud NAT | Added NAT lookup with lifecycle.precondition |
+| 5 | Init script non-idempotent | Added step sentinels + apt-get retry with exponential backoff |
+| 6 | pgvector extension name wrong | Changed to `CREATE EXTENSION IF NOT EXISTS vector` |
+| 7 | No completion sentinel | Writes `/var/lib/postgres-setup/READY` on success |
+| 8 | GHA IP non-determinism | Added `var.allow_github_actions_ingress` (default false) |
+| 9 | Production-hostile defaults | Changed to pd-balanced, force_destroy=false, log_statement off |
+| 10 | Secret version growth | Removed redundant null_resource.sync_secrets |
 
 ## PR breakdown
 
@@ -240,10 +242,10 @@ sequence for transparency to downstream consumers:
 | 3 | PR2 | Done (merged) | 1.30.0 |
 | 4 | PR4 | Done (merged) | 1.30.0 |
 | 5 | PR6 | Done (merged) | 2.0.0 |
-| 6 | **PR3 (Preflight checks)** | **Done (merged)** | **2.0.0** |
-| 7 | PR5 (Data disk fix) | Pending | TBD |
+| 6 | PR3 (Preflight checks) | Done (merged) | 2.0.0 |
+| 7 | PR5 (Data disk fix) | Done (merged) | 2.0.0 |
 
-**Note:** PR2 and PR4 were merged together in PR #17 (v1.30.0). PR6 was merged as a standalone major release (2.0.0). PR3 (Preflight checks) was merged in PR #17 as part of the 2.0.0 release. PR5 (Data disk fix) is still pending.
+**Note:** All 7 PRs are now complete. PR2+PR4+PR3+PR5 were merged together in PR #17 (v1.30.0 then 2.0.0). The data disk fix uses Option A: pre-seeded `/etc/postgresql-common/createcluster.conf` with `data_directory = '/mnt/postgres-data/pg_data'`.
 
 ## Decisions captured
 
