@@ -8,7 +8,7 @@ plugin "google" {
   source  = "github.com/terraform-linters/tflint-ruleset-google"
 }
 
-# Disable rules that produce warnings but don't affect the module
+# Disable rules for pre-existing issues (not related to this PR)
 disable = [
   "terraform_required_providers",
   "terraform_unused_declarations",
