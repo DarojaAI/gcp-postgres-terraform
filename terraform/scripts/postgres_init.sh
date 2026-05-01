@@ -126,37 +126,23 @@ run_step 2 "Add PostgreSQL Repository" '
 '
 
 # ============================================
-# Step 3: Install PostgreSQL (with retry)
+# Step 2b: Pre-seed PostgreSQL cluster config (data directory)
 # ============================================
-run_step 3 "Install PostgreSQL" '
-  echo "Installing PostgreSQL $POSTGRES_VERSION...";
-  apt-get install -y "postgresql-$POSTGRES_VERSION" "postgresql-contrib-$POSTGRES_VERSION";
-  if ! command -v psql &>/dev/null; then
-    echo "ERROR: psql command not found after installation";
-    exit 1;
-  fi;
-  PG_VERSION=$(psql --version);
-  echo "PostgreSQL installed: $PG_VERSION"
+run_step 2b "Pre-seed PostgreSQL cluster config" '
+  echo "Pre-seeding PostgreSQL cluster config to use persistent data disk...";
+  mkdir -p /etc/postgresql-common;
+  cat > /etc/postgresql-common/createcluster.conf << EOF
+# Default data directory for new PostgreSQL clusters
+data_directory = '"'"'/mnt/postgres-data/pg_data'"'"'
+EOF
+  chmod 644 /etc/postgresql-common/createcluster.conf;
+  echo "PostgreSQL cluster config pre-seeded with data_directory = /mnt/postgres-data/pg_data"
 '
 
 # ============================================
-# Step 4: Install pgvector (conditional, with retry)
+# Step 3: Format and Mount Data Disk
 # ============================================
-if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
-  run_step 4 "Install pgvector" '
-    echo "Installing pgvector extension...";
-    apt-get install -y "postgresql-$POSTGRES_VERSION-pgvector"
-  '
-else
-  # Create sentinel file for skipped step to maintain step numbering
-  echo "[$(date -Iseconds)] ===== Step 4: pgvector SKIPPED (disabled) ====="
-  touch "$SENTINEL_DIR/step-4-done"
-fi
-
-# ============================================
-# Step 5: Format and Mount Data Disk
-# ============================================
-run_step 5 "Format and Mount Data Disk" '
+run_step 3 "Format and Mount Data Disk" '
   if [[ -b /dev/$DATA_DISK_DEVICE ]]; then
     echo "Found data disk: /dev/$DATA_DISK_DEVICE";
 
@@ -185,9 +171,38 @@ run_step 5 "Format and Mount Data Disk" '
 '
 
 # ============================================
-# Step 6: Configure PostgreSQL Data Directory
+# Step 4: Install PostgreSQL
 # ============================================
-run_step 6 "Configure PostgreSQL Data Directory" '
+run_step 4 "Install PostgreSQL" '
+  echo "Installing PostgreSQL $POSTGRES_VERSION...";
+  apt-get install -y "postgresql-$POSTGRES_VERSION" "postgresql-contrib-$POSTGRES_VERSION";
+  if ! command -v psql &>/dev/null; then
+    echo "ERROR: psql command not found after installation";
+    exit 1;
+  fi;
+  PG_VERSION=$(psql --version);
+  echo "PostgreSQL installed: $PG_VERSION"
+'
+
+# ============================================
+# Step 5: Install pgvector (conditional, with retry)
+# ============================================
+if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
+  run_step 5 "Install pgvector" '
+    echo "Installing pgvector extension...";
+    apt-get install -y "postgresql-$POSTGRES_VERSION-pgvector"
+  '
+else
+  # Create sentinel file for skipped step to maintain step numbering
+  echo "[$(date -Iseconds)] ===== Step 5: pgvector SKIPPED (disabled) ====="
+  touch "$SENTINEL_DIR/step-5-done"
+fi
+
+
+# ============================================
+# Step 7: Configure PostgreSQL Data Directory
+# ============================================
+run_step 7 "Configure PostgreSQL Data Directory" '
   if [[ -d "$MOUNT_POINT" ]]; then
     echo "Configuring PostgreSQL data directory on persistent disk...";
     PG_DATA_DIR="$MOUNT_POINT/pg_data";
@@ -201,9 +216,9 @@ run_step 6 "Configure PostgreSQL Data Directory" '
 '
 
 # ============================================
-# Step 7: Configure PostgreSQL
+# Step 9: Configure PostgreSQL
 # ============================================
-run_step 7 "Configure PostgreSQL" '
+run_step 9 "Configure PostgreSQL" '
   echo "Updating postgresql.conf...";
 
   cat >> "/etc/postgresql/$POSTGRES_VERSION/main/postgresql.conf" << EOF
@@ -235,9 +250,9 @@ EOF
 '
 
 # ============================================
-# Step 8: Start PostgreSQL Service
+# Step 10: Start PostgreSQL Service
 # ============================================
-run_step 8 "Start PostgreSQL Service" '
+run_step 10 "Start PostgreSQL Service" '
   echo "Starting PostgreSQL service...";
   systemctl start "postgresql@$POSTGRES_VERSION-main";
   echo "Enabling PostgreSQL service...";
@@ -256,9 +271,9 @@ run_step 8 "Start PostgreSQL Service" '
 '
 
 # ============================================
-# Step 9: Enable Extensions
+# Step 12: Enable Extensions
 # ============================================
-run_step 9 "Enable Extensions" '
+run_step 12 "Enable Extensions" '
   if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
     echo "Enabling pgvector extension...";
     sudo -u postgres psql -c "CREATE EXTENSION IF NOT EXISTS vector;";
@@ -275,9 +290,9 @@ SQL
 '
 
 # ============================================
-# Step 10: Create Database and User
+# Step 14: Create Database and User
 # ============================================
-run_step 10 "Create Database and User" '
+run_step 14 "Create Database and User" '
   echo "Creating database '"'"'$DB_NAME'"'"' and user '"'"'$DB_USER'"'"'...";
 
   sudo -u postgres psql << SQL
@@ -294,10 +309,10 @@ SQL
 '
 
 # ============================================
-# Step 11: Run Custom Init SQL (if provided)
+# Step 15: Run Custom Init SQL (if provided)
 # ============================================
 if [[ -n "$INIT_SQL" ]] && [[ "$INIT_SQL" != "null" ]]; then
-  run_step 11 "Run Custom Init SQL" '
+  run_step 15 "Run Custom Init SQL" '
     echo "Executing custom initialization SQL...";
     sudo -u postgres psql -d "$DB_NAME" << SQL
 $INIT_SQL
@@ -307,10 +322,10 @@ SQL
 fi
 
 # ============================================
-# Step 12: Setup Backups (if bucket provided)
+# Step 16: Setup Backups (if bucket provided)
 # ============================================
 if [[ -n "$BACKUP_BUCKET" ]] && [[ "$BACKUP_BUCKET" != "null" ]]; then
-  run_step 12 "Setup Backups" '
+  run_step 16 "Setup Backups" '
     echo "Installing pgBackRest for backups...";
     apt-get install -y pgbackrest;
 
@@ -343,9 +358,9 @@ else
 fi
 
 # ============================================
-# Step 13: Health Checks
+# Step 17: Health Checks
 # ============================================
-run_step 13 "Health Checks" '
+run_step 17 "Health Checks" '
   echo "Running final health checks...";
 
   echo "Health Check 1: PostgreSQL version query...";
@@ -384,6 +399,16 @@ run_step 13 "Health Checks" '
     else
       echo "WARNING: pgvector extension status unclear";
     fi
+  fi;
+
+  echo "Health Check 5: Verify data directory on persistent disk...";
+  DATA_DIR=$(sudo -u postgres psql -t -c "SHOW data_directory;" 2>&1 | tr -d '"'"' '"'"');
+  if [[ "$DATA_DIR" == "/mnt/postgres-data/pg_data" ]]; then
+    echo "PostgreSQL using data disk: $DATA_DIR";
+  else
+    echo "ERROR: PostgreSQL NOT using data disk! Current: $DATA_DIR";
+    echo "Expected: /mnt/postgres-data/pg_data";
+    exit 1;
   fi
 '
 
