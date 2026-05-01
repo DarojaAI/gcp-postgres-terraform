@@ -25,22 +25,22 @@ run_step() {
   local step_num="$1"
   local step_name="$2"
   local step_cmd="$3"
-  local sentinel_file="$SENTINEL_DIR/step-${step_num}-done"
+  local sentinel_file="$SENTINEL_DIR/step-$${step_num}-done"
 
   if [[ -f "$sentinel_file" ]]; then
-    echo "[$(date -Iseconds)] ⏭️  Step $step_num ($step_name): skipping (already completed)"
+    echo "[$(date -Iseconds)] ⏭️  Step $$step_num ($$step_name): skipping (already completed)"
     return 0
   fi
 
-  echo "[$(date -Iseconds)] ===== Step $step_num: $step_name ====="
-  eval "$step_cmd"
+  echo "[$(date -Iseconds)] ===== Step $$step_num: $$step_name ====="
+  eval "$$step_cmd"
   local result=$?
 
   if [[ $result -eq 0 ]]; then
     touch "$sentinel_file"
-    echo "[$(date -Iseconds)] ✅ Step $step_num ($step_name): completed"
+    echo "[$(date -Iseconds)] ✅ Step $$step_num ($$step_name): completed"
   else
-    echo "[$(date -Iseconds)] ❌ Step $step_num ($step_name): failed with exit code $result"
+    echo "[$(date -Iseconds)] ❌ Step $$step_num ($$step_name): failed with exit code $$result"
     return $result
   fi
 }
@@ -60,7 +60,7 @@ apt_retry() {
 
     if [[ $attempt -lt $max_attempts ]]; then
       local sleep_time=$((delay * attempt))  # 10s, 30s, 90s
-      echo "[$(date -Iseconds)] apt-get failed, retrying in ${sleep_time}s..."
+      echo "[$(date -Iseconds)] apt-get failed, retrying in $${sleep_time}s..."
       sleep "$sleep_time"
     fi
 
