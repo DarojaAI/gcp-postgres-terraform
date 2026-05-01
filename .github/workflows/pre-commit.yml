@@ -92,3 +92,16 @@ jobs:
       - name: Validate
         working-directory: terraform
         run: terraform validate
+
+      - name: Run TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint-version: v0.52.0
+
+      - name: Initialize TFLint
+        working-directory: terraform
+        run: tflint --init --config=../.tflint.hcl
+
+      - name: Run TFLint
+        working-directory: terraform
+        run: tflint --config=../.tflint.hcl
