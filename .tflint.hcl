@@ -8,8 +8,10 @@ plugin "google" {
   source  = "github.com/terraform-linters/tflint-ruleset-google"
 }
 
-# Disable rules for pre-existing issues (not related to this PR)
-disable = [
-  "terraform_required_providers",
-  "terraform_unused_declarations",
-]
+rule "terraform_required_providers" {
+  enabled = false
+}
+
+rule "terraform_unused_declarations" {
+  enabled = false
+}
