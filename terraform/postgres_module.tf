@@ -13,9 +13,10 @@
 # =============================================================================
 
 # Fetch GitHub Actions runner IP ranges for firewall allowlisting
-# Enables DBT schema validation in CI/CD workflows to connect to PostgreSQL
+# Only when allow_github_actions_ingress is enabled
 data "http" "github_actions_ips" {
-  url = "https://api.github.com/meta"
+  count = var.allow_github_actions_ingress ? 1 : 0
+  url   = "https://api.github.com/meta"
   request_headers = {
     Accept = "application/vnd.github+json"
   }
@@ -25,10 +26,20 @@ data "http" "github_actions_ips" {
 # IPv4 CIDRs look like "13.64.0.0/11" - we aggregate to /16 blocks
 # IPv6 addresses (containing ':') are filtered out as GCP firewall doesn't accept them
 locals {
-  github_actions_ipv4 = [for cidr in jsondecode(data.http.github_actions_ips.response_body).actions :
+  github_actions_ipv4 = var.allow_github_actions_ingress ? [
+    for cidr in jsondecode(data.http.github_actions_ips[0].response_body).actions :
     length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
-  ]
+  ] : []
   github_actions_cidrs = distinct(local.github_actions_ipv4)
+}
+
+# NAT router lookup for preflight validation
+data "google_compute_router_nat" "main" {
+  count = var.enable_cloud_nat && !var.assign_external_ip ? 1 : 0
+  # Use var.nat_project_id if set, otherwise fall back to var.project_id
+  project = var.nat_project_id != "" ? var.nat_project_id : var.project_id
+  region  = var.region
+  name    = "nat-${var.vpc_name}"
 }
 
 # Enable required GCP APIs
@@ -321,6 +332,13 @@ resource "google_compute_instance" "postgres" {
   zone         = var.zone
 
   can_ip_forward = true
+
+  lifecycle {
+    precondition {
+      condition     = var.assign_external_ip || !var.enable_cloud_nat || length(data.google_compute_router_nat.main) > 0
+      error_message = "Cloud NAT is required when assign_external_ip=false and enable_cloud_nat=true. Ensure NAT is configured in the VPC (set var.nat_project_id if NAT lives in a different project)."
+    }
+  }
 
   tags = ["postgres-server"]
 
