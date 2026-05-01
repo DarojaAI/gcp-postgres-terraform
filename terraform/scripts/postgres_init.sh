@@ -15,6 +15,62 @@
 
 set -euo pipefail
 
+# Idempotent sentinel directory
+SENTINEL_DIR="/var/lib/postgres-setup"
+mkdir -p "$SENTINEL_DIR"
+
+# Helper function to run a step idempotently
+# Usage: run_step <step-number> <step-name> <command>
+run_step() {
+  local step_num="$1"
+  local step_name="$2"
+  local step_cmd="$3"
+  local sentinel_file="$SENTINEL_DIR/step-$${step_num}-done"
+
+  if [[ -f "$sentinel_file" ]]; then
+    echo "[$(date -Iseconds)] ⏭️  Step $$step_num ($$step_name): skipping (already completed)"
+    return 0
+  fi
+
+  echo "[$(date -Iseconds)] ===== Step $$step_num: $$step_name ====="
+  eval "$$step_cmd"
+  local result=$?
+
+  if [[ $result -eq 0 ]]; then
+    touch "$sentinel_file"
+    echo "[$(date -Iseconds)] ✅ Step $$step_num ($$step_name): completed"
+  else
+    echo "[$(date -Iseconds)] ❌ Step $$step_num ($$step_name): failed with exit code $$result"
+    return $result
+  fi
+}
+
+# Retry function for apt-get with exponential backoff
+# Usage: apt_retry <command>
+apt_retry() {
+  local max_attempts=3
+  local attempt=1
+  local delay=10
+
+  while [[ $attempt -le $max_attempts ]]; do
+    echo "[$(date -Iseconds)] apt-get attempt $attempt of $max_attempts..."
+    if eval "$@"; then
+      return 0
+    fi
+
+    if [[ $attempt -lt $max_attempts ]]; then
+      local sleep_time=$((delay * attempt))  # 10s, 30s, 90s
+      echo "[$(date -Iseconds)] apt-get failed, retrying in $${sleep_time}s..."
+      sleep "$sleep_time"
+    fi
+
+    ((attempt++))
+  done
+
+  echo "[$(date -Iseconds)] ERROR: apt-get failed after $max_attempts attempts"
+  return 1
+}
+
 # Logging setup - capture all output with timestamps
 LOG_FILE="/var/log/postgres-setup.log"
 exec 1> >(tee -a "$LOG_FILE")
@@ -49,143 +105,108 @@ echo "[$(date -Iseconds)] LOG_FILE: $LOG_FILE"
 echo ""
 
 # ============================================
-# Step 1: System Updates
+# Step 1: System Updates (with retry)
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 1: System Updates ====="
-echo "[$(date -Iseconds)] Updating package lists..."
-apt-get update || {
-  echo "[$(date -Iseconds)] ERROR: apt-get update failed";
-  exit 1;
-}
-
-echo "[$(date -Iseconds)] Upgrading packages..."
-apt-get upgrade -y || {
-  echo "[$(date -Iseconds)] ERROR: apt-get upgrade failed";
-  exit 1;
-}
-echo "[$(date -Iseconds)] ✅ System updated successfully"
+run_step 1 "System Updates" '
+  echo "Updating package lists with retry...";
+  apt_retry "apt-get update";
+  echo "Upgrading packages...";
+  apt-get upgrade -y
+'
 
 # ============================================
-# Step 2: Add PostgreSQL Repository
+# Step 2: Add PostgreSQL Repository (with retry)
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 2: Add PostgreSQL Repository ====="
-apt-get install -y lsb-release curl gnupg2 || {
-  echo "[$(date -Iseconds)] ERROR: Failed to install prerequisites"
-  exit 1
-}
-
-curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | tee /usr/share/keyrings/postgresql-archive-keyring.gpg >/dev/null || {
-  echo "[$(date -Iseconds)] ERROR: Failed to add PostgreSQL GPG key"
-  exit 1
-}
-
-echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/postgresql.list
-
-echo "[$(date -Iseconds)] Updating package lists with PostgreSQL repository..."
-apt-get update || {
-  echo "[$(date -Iseconds)] ERROR: apt-get update failed after adding PostgreSQL repo"
-  exit 1
-}
-echo "[$(date -Iseconds)] ✅ PostgreSQL repository added successfully"
+run_step 2 "Add PostgreSQL Repository" '
+  apt-get install -y lsb-release curl gnupg2;
+  curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | tee /usr/share/keyrings/postgresql-archive-keyring.gpg >/dev/null;
+  echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/postgresql.list;
+  echo "Updating package lists with PostgreSQL repository...";
+  apt_retry "apt-get update"
+'
 
 # ============================================
-# Step 3: Install PostgreSQL
+# Step 3: Install PostgreSQL (with retry)
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 3: Install PostgreSQL ====="
-echo "[$(date -Iseconds)] Installing PostgreSQL $POSTGRES_VERSION..."
-apt-get install -y "postgresql-$POSTGRES_VERSION" "postgresql-contrib-$POSTGRES_VERSION" || {
-  echo "[$(date -Iseconds)] ERROR: PostgreSQL installation failed"
-  exit 1
-}
-
-# Verify installation
-if ! command -v psql &>/dev/null; then
-  echo "[$(date -Iseconds)] ERROR: psql command not found after installation"
-  exit 1
-fi
-
-PG_VERSION=$(psql --version)
-echo "[$(date -Iseconds)] ✅ PostgreSQL installed successfully"
-echo "[$(date -Iseconds)] Version: $PG_VERSION"
+run_step 3 "Install PostgreSQL" '
+  echo "Installing PostgreSQL $POSTGRES_VERSION...";
+  apt-get install -y "postgresql-$POSTGRES_VERSION" "postgresql-contrib-$POSTGRES_VERSION";
+  if ! command -v psql &>/dev/null; then
+    echo "ERROR: psql command not found after installation";
+    exit 1;
+  fi;
+  PG_VERSION=$(psql --version);
+  echo "PostgreSQL installed: $PG_VERSION"
+'
 
 # ============================================
-# Step 4: Install pgvector (if enabled)
+# Step 4: Install pgvector (conditional, with retry)
 # ============================================
 if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
-  echo "[$(date -Iseconds)] ===== Step 4: Install pgvector ====="
-  echo "[$(date -Iseconds)] Installing pgvector extension..."
-  apt-get install -y "postgresql-$POSTGRES_VERSION-pgvector" || {
-    echo "[$(date -Iseconds)] ERROR: pgvector installation failed"
-    exit 1
-  }
-  echo "[$(date -Iseconds)] ✅ pgvector installed successfully"
+  run_step 4 "Install pgvector" '
+    echo "Installing pgvector extension...";
+    apt-get install -y "postgresql-$POSTGRES_VERSION-pgvector"
+  '
 else
+  # Create sentinel file for skipped step to maintain step numbering
   echo "[$(date -Iseconds)] ===== Step 4: pgvector SKIPPED (disabled) ====="
+  touch "$SENTINEL_DIR/step-4-done"
 fi
 
 # ============================================
 # Step 5: Format and Mount Data Disk
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 5: Format and Mount Data Disk ====="
-if [[ -b /dev/$DATA_DISK_DEVICE ]]; then
-  echo "[$(date -Iseconds)] Found data disk: /dev/$DATA_DISK_DEVICE"
+run_step 5 "Format and Mount Data Disk" '
+  if [[ -b /dev/$DATA_DISK_DEVICE ]]; then
+    echo "Found data disk: /dev/$DATA_DISK_DEVICE";
 
-  if ! grep -q "/dev/$DATA_DISK_DEVICE" /etc/fstab 2>/dev/null; then
-    echo "[$(date -Iseconds)] Formatting disk /dev/$DATA_DISK_DEVICE..."
-    mkfs.ext4 -F "/dev/$DATA_DISK_DEVICE" || {
-      echo "[$(date -Iseconds)] ERROR: Failed to format disk /dev/$DATA_DISK_DEVICE"
-      exit 1
-    }
+    if ! grep -q "/dev/$DATA_DISK_DEVICE" /etc/fstab 2>/dev/null; then
+      echo "Formatting disk /dev/$DATA_DISK_DEVICE...";
+      mkfs.ext4 -F "/dev/$DATA_DISK_DEVICE";
+      echo "Creating mount point: $MOUNT_POINT";
+      mkdir -p "$MOUNT_POINT";
+      echo "Adding to /etc/fstab";
+      echo "/dev/$DATA_DISK_DEVICE $MOUNT_POINT ext4 defaults,nofail 0 0" >> /etc/fstab;
+      echo "Mounting disk...";
+      mount "$MOUNT_POINT";
+      echo "Disk mounted successfully";
+    else
+      echo "Disk already mounted";
+    fi;
 
-    echo "[$(date -Iseconds)] Creating mount point: $MOUNT_POINT"
-    mkdir -p "$MOUNT_POINT"
-
-    echo "[$(date -Iseconds)] Adding to /etc/fstab"
-    echo "/dev/$DATA_DISK_DEVICE $MOUNT_POINT ext4 defaults,nofail 0 0" >> /etc/fstab
-
-    echo "[$(date -Iseconds)] Mounting disk..."
-    mount "$MOUNT_POINT" || {
-      echo "[$(date -Iseconds)] ERROR: Failed to mount $MOUNT_POINT"
-      exit 1
-    }
-
-    echo "[$(date -Iseconds)] ✅ Disk mounted successfully"
+    if ! mountpoint -q "$MOUNT_POINT"; then
+      echo "ERROR: Mount point $MOUNT_POINT is not accessible";
+      exit 1;
+    fi
   else
-    echo "[$(date -Iseconds)] ℹ️  Disk already mounted"
+    echo "WARNING: Data disk /dev/$DATA_DISK_DEVICE not found";
+    echo "PostgreSQL will use boot disk (not recommended for production)";
   fi
-
-  # Verify mount
-  if ! mountpoint -q "$MOUNT_POINT"; then
-    echo "[$(date -Iseconds)] ERROR: Mount point $MOUNT_POINT is not accessible"
-    exit 1
-  fi
-else
-  echo "[$(date -Iseconds)] ⚠️  Data disk /dev/$DATA_DISK_DEVICE not found"
-  echo "[$(date -Iseconds)] PostgreSQL will use boot disk (not recommended for production)"
-fi
+'
 
 # ============================================
 # Step 6: Configure PostgreSQL Data Directory
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 6: Configure PostgreSQL Data Directory ====="
-if [[ -d "$MOUNT_POINT" ]]; then
-  echo "[$(date -Iseconds)] Configuring PostgreSQL data directory on persistent disk..."
-  PG_DATA_DIR="$MOUNT_POINT/pg_data"
-  mkdir -p "$PG_DATA_DIR"
-  chown -R postgres:postgres "$MOUNT_POINT"
-  chmod 700 "$PG_DATA_DIR"
-  echo "[$(date -Iseconds)] ✅ Data directory configured: $PG_DATA_DIR"
-else
-  echo "[$(date -Iseconds)] ⚠️  Mount point not available, using default location"
-fi
+run_step 6 "Configure PostgreSQL Data Directory" '
+  if [[ -d "$MOUNT_POINT" ]]; then
+    echo "Configuring PostgreSQL data directory on persistent disk...";
+    PG_DATA_DIR="$MOUNT_POINT/pg_data";
+    mkdir -p "$PG_DATA_DIR";
+    chown -R postgres:postgres "$MOUNT_POINT";
+    chmod 700 "$PG_DATA_DIR";
+    echo "Data directory configured: $PG_DATA_DIR";
+  else
+    echo "WARNING: Mount point not available, using default location";
+  fi
+'
 
 # ============================================
 # Step 7: Configure PostgreSQL
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 7: Configure PostgreSQL ====="
-echo "[$(date -Iseconds)] Updating postgresql.conf..."
+run_step 7 "Configure PostgreSQL" '
+  echo "Updating postgresql.conf...";
 
-cat >> "/etc/postgresql/$POSTGRES_VERSION/main/postgresql.conf" << EOF
+  cat >> "/etc/postgresql/$POSTGRES_VERSION/main/postgresql.conf" << EOF
 
 # ===== EAI Custom Configuration =====
 # Performance tuning
@@ -198,93 +219,70 @@ random_page_cost = 1.1
 effective_io_concurrency = 200
 
 # Extensions
-$(if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then echo "shared_preload_libraries = 'pgvector'"; fi)
+$(if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then echo "shared_preload_libraries = '\''pgvector'\''"; fi)
 
 # Logging
-$(if [[ "$LOG_ALL_STATEMENTS" == "true" ]] || [[ "$LOG_ALL_STATEMENTS" == "1" ]]; then echo "log_statement = 'all'"; fi)
+$(if [[ "$LOG_ALL_STATEMENTS" == "true" ]] || [[ "$LOG_ALL_STATEMENTS" == "1" ]]; then echo "log_statement = '\''all'\''"; fi)
 log_duration = true
 log_min_duration_statement = 1000
-log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+log_line_prefix = '\''%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '\''
 
 # Network
-listen_addresses = '*'
+listen_addresses = '\''*'\''
 EOF
 
-echo "[$(date -Iseconds)] ✅ PostgreSQL configuration updated"
+  echo "PostgreSQL configuration updated"
+'
 
 # ============================================
 # Step 8: Start PostgreSQL Service
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 8: Start PostgreSQL Service ====="
-echo "[$(date -Iseconds)] Starting PostgreSQL service..."
-systemctl start "postgresql@$POSTGRES_VERSION-main" || {
-  echo "[$(date -Iseconds)] ERROR: Failed to start PostgreSQL"
-  echo "[$(date -Iseconds)] Service status:"
-  systemctl status "postgresql@$POSTGRES_VERSION-main" || true
-  echo "[$(date -Iseconds)] Recent logs:"
-  journalctl -u "postgresql@$POSTGRES_VERSION-main" -n 50 || true
-  exit 1
-}
+run_step 8 "Start PostgreSQL Service" '
+  echo "Starting PostgreSQL service...";
+  systemctl start "postgresql@$POSTGRES_VERSION-main";
+  echo "Enabling PostgreSQL service...";
+  systemctl enable "postgresql@$POSTGRES_VERSION-main";
+  echo "Waiting for PostgreSQL to stabilize...";
+  sleep 3;
 
-echo "[$(date -Iseconds)] Enabling PostgreSQL service..."
-systemctl enable "postgresql@$POSTGRES_VERSION-main" || {
-  echo "[$(date -Iseconds)] ERROR: Failed to enable PostgreSQL service"
-  exit 1
-}
+  if ! systemctl is-active --quiet "postgresql@$POSTGRES_VERSION-main"; then
+    echo "ERROR: PostgreSQL service is not running after startup";
+    systemctl status "postgresql@$POSTGRES_VERSION-main" || true;
+    journalctl -u "postgresql@$POSTGRES_VERSION-main" -n 100 || true;
+    exit 1;
+  fi;
 
-# Wait for service to stabilize
-echo "[$(date -Iseconds)] Waiting for PostgreSQL to stabilize..."
-sleep 3
-
-# Verify service is running
-if ! systemctl is-active --quiet "postgresql@$POSTGRES_VERSION-main"; then
-  echo "[$(date -Iseconds)] ERROR: PostgreSQL service is not running after startup"
-  echo "[$(date -Iseconds)] Service status:"
-  systemctl status "postgresql@$POSTGRES_VERSION-main" || true
-  echo "[$(date -Iseconds)] Recent logs:"
-  journalctl -u "postgresql@$POSTGRES_VERSION-main" -n 100 || true
-  exit 1
-fi
-
-echo "[$(date -Iseconds)] ✅ PostgreSQL service started and enabled"
+  echo "PostgreSQL service started and enabled"
+'
 
 # ============================================
 # Step 9: Enable Extensions
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 9: Enable Extensions ====="
-if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
-  echo "[$(date -Iseconds)] Enabling pgvector extension..."
-  sudo -u postgres psql -c "CREATE EXTENSION IF NOT EXISTS pgvector;" || {
-    echo "[$(date -Iseconds)] ERROR: Failed to create pgvector extension"
-    exit 1
-  }
-  echo "[$(date -Iseconds)] ✅ pgvector extension enabled"
-fi
+run_step 9 "Enable Extensions" '
+  if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
+    echo "Enabling pgvector extension...";
+    sudo -u postgres psql -c "CREATE EXTENSION IF NOT EXISTS vector;";
+    echo "pgvector extension enabled";
+  fi;
 
-# Enable common extensions
-echo "[$(date -Iseconds)] Enabling common extensions..."
-sudo -u postgres psql << SQL || {
-  echo "[$(date -Iseconds)] ERROR: Failed to enable extensions"
-  exit 1
-}
+  echo "Enabling common extensions...";
+  sudo -u postgres psql << SQL
 CREATE EXTENSION IF NOT EXISTS uuid-ossp;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS hstore;
 SQL
-echo "[$(date -Iseconds)] ✅ Common extensions enabled"
+  echo "Common extensions enabled"
+'
 
 # ============================================
 # Step 10: Create Database and User
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 10: Create Database and User ====="
-echo "[$(date -Iseconds)] Creating database '$DB_NAME' and user '$DB_USER'..."
+run_step 10 "Create Database and User" '
+  echo "Creating database '"'"'$DB_NAME'"'"' and user '"'"'$DB_USER'"'"'...";
 
-sudo -u postgres psql << SQL || {
-  echo "[$(date -Iseconds)] ERROR: Failed to create database or user"
-  exit 1
-}
+  sudo -u postgres psql << SQL
 CREATE DATABASE "$DB_NAME";
-CREATE USER "$DB_USER" WITH PASSWORD '$DB_PASSWORD';
+CREATE USER "$DB_USER" WITH PASSWORD '"'"'$DB_PASSWORD'"'"';
 ALTER ROLE "$DB_USER" SET search_path = public;
 GRANT CONNECT ON DATABASE "$DB_NAME" TO "$DB_USER";
 GRANT USAGE ON SCHEMA public TO "$DB_USER";
@@ -292,43 +290,39 @@ GRANT CREATE ON SCHEMA public TO "$DB_USER";
 GRANT ALL PRIVILEGES ON DATABASE "$DB_NAME" TO "$DB_USER";
 SQL
 
-echo "[$(date -Iseconds)] ✅ Database and user created"
+  echo "Database and user created"
+'
 
 # ============================================
 # Step 11: Run Custom Init SQL (if provided)
 # ============================================
 if [[ -n "$INIT_SQL" ]] && [[ "$INIT_SQL" != "null" ]]; then
-  echo "[$(date -Iseconds)] ===== Step 11: Run Custom Init SQL ====="
-  echo "[$(date -Iseconds)] Executing custom initialization SQL..."
-  sudo -u postgres psql -d "$DB_NAME" << SQL || {
-    echo "[$(date -Iseconds)] ERROR: Failed to execute custom init SQL"
-    exit 1
-  }
-  $INIT_SQL
+  run_step 11 "Run Custom Init SQL" '
+    echo "Executing custom initialization SQL...";
+    sudo -u postgres psql -d "$DB_NAME" << SQL
+$INIT_SQL
 SQL
-  echo "[$(date -Iseconds)] ✅ Custom init SQL completed"
+    echo "Custom init SQL completed"
+  '
 fi
 
 # ============================================
 # Step 12: Setup Backups (if bucket provided)
 # ============================================
 if [[ -n "$BACKUP_BUCKET" ]] && [[ "$BACKUP_BUCKET" != "null" ]]; then
-  echo "[$(date -Iseconds)] ===== Step 12: Setup Backups ====="
-  echo "[$(date -Iseconds)] Installing pgBackRest for backups..."
-  apt-get install -y pgbackrest || {
-    echo "[$(date -Iseconds)] ERROR: Failed to install pgbackrest"
-    exit 1
-  }
+  run_step 12 "Setup Backups" '
+    echo "Installing pgBackRest for backups...";
+    apt-get install -y pgbackrest;
 
-  echo "[$(date -Iseconds)] Configuring pgBackRest..."
-  cat > "/etc/pgbackrest.conf" << PGBACKREST_EOF
+    echo "Configuring pgBackRest...";
+    cat > "/etc/pgbackrest.conf" << PGBACKREST_EOF
 [global]
 repo1-type=s3
 repo1-s3-bucket=$BACKUP_BUCKET
-repo1-s3-region=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'/' -f4 | sed 's/-[a-z]$//')
+repo1-s3-region=\$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'"'"'/'"'"' -f4 | sed '"'"'s/-[a-z]\$//'"'"')
 
-[stanza:postgres-$POSTGRES_VERSION]
-db-path=/var/lib/postgresql/$POSTGRES_VERSION/main
+[stanza:postgres-\$POSTGRES_VERSION]
+db-path=/var/lib/postgresql/\$POSTGRES_VERSION/main
 db-port=5432
 db-user=postgres
 
@@ -337,60 +331,68 @@ log-level-file=debug
 log-path=/var/log/pgbackrest
 PGBACKREST_EOF
 
-  mkdir -p /var/log/pgbackrest
-  chown postgres:postgres /var/log/pgbackrest
-  chmod 750 /var/log/pgbackrest
+    mkdir -p /var/log/pgbackrest;
+    chown postgres:postgres /var/log/pgbackrest;
+    chmod 750 /var/log/pgbackrest;
 
-  echo "[$(date -Iseconds)] ✅ pgBackRest configured"
+    echo "pgBackRest configured"
+  '
+else
+  # Create sentinel file for skipped step
+  touch "$SENTINEL_DIR/step-12-done"
 fi
 
 # ============================================
 # Step 13: Health Checks
 # ============================================
-echo "[$(date -Iseconds)] ===== Step 13: Health Checks ====="
-echo "[$(date -Iseconds)] Running final health checks..."
+run_step 13 "Health Checks" '
+  echo "Running final health checks...";
 
-# Check 1: PostgreSQL responds to version query
-echo "[$(date -Iseconds)] Health Check 1: PostgreSQL version query..."
-PG_VERSION_OUTPUT=$(sudo -u postgres psql -c "SELECT version();" 2>&1)
-if [[ "$PG_VERSION_OUTPUT" == *"PostgreSQL"* ]]; then
-  echo "[$(date -Iseconds)] ✅ PostgreSQL responding to queries"
-  echo "[$(date -Iseconds)] $PG_VERSION_OUTPUT"
-else
-  echo "[$(date -Iseconds)] ❌ PostgreSQL version query failed"
-  echo "[$(date -Iseconds)] Output: $PG_VERSION_OUTPUT"
-  exit 1
-fi
-
-# Check 2: Database exists and is accessible
-echo "[$(date -Iseconds)] Health Check 2: Database accessibility..."
-DB_CHECK=$(sudo -u postgres psql -d "$DB_NAME" -c "SELECT 1;" 2>&1)
-if [[ "$DB_CHECK" == *"1"* ]]; then
-  echo "[$(date -Iseconds)] ✅ Database '$DB_NAME' is accessible"
-else
-  echo "[$(date -Iseconds)] ❌ Database connectivity check failed"
-  exit 1
-fi
-
-# Check 3: User can connect
-echo "[$(date -Iseconds)] Health Check 3: Application user connectivity..."
-USER_CHECK=$(PGPASSWORD="$DB_PASSWORD" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" 2>&1)
-if [[ "$USER_CHECK" == *"1"* ]]; then
-  echo "[$(date -Iseconds)] ✅ Application user '$DB_USER' can connect"
-else
-  echo "[$(date -Iseconds)] ⚠️  Application user connectivity check inconclusive (may fail if using socket auth)"
-fi
-
-# Check 4: Extensions are installed (if pgvector enabled)
-if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
-  echo "[$(date -Iseconds)] Health Check 4: pgvector extension..."
-  EXT_CHECK=$(sudo -u postgres psql -c "SELECT * FROM pg_extension WHERE extname = 'pgvector';" 2>&1)
-  if [[ "$EXT_CHECK" == *"pgvector"* ]] || [[ "$EXT_CHECK" == *"1 row"* ]]; then
-    echo "[$(date -Iseconds)] ✅ pgvector extension is installed"
+  echo "Health Check 1: PostgreSQL version query...";
+  PG_VERSION_OUTPUT=$(sudo -u postgres psql -c "SELECT version();" 2>&1);
+  if [[ "$PG_VERSION_OUTPUT" == *"PostgreSQL"* ]]; then
+    echo "PostgreSQL responding to queries";
+    echo "$PG_VERSION_OUTPUT";
   else
-    echo "[$(date -Iseconds)] ⚠️  pgvector extension status unclear"
+    echo "ERROR: PostgreSQL version query failed";
+    echo "Output: $PG_VERSION_OUTPUT";
+    exit 1;
+  fi;
+
+  echo "Health Check 2: Database accessibility...";
+  DB_CHECK=$(sudo -u postgres psql -d "$DB_NAME" -c "SELECT 1;" 2>&1);
+  if [[ "$DB_CHECK" == *"1"* ]]; then
+    echo "Database '"'"'$DB_NAME'"'"' is accessible";
+  else
+    echo "ERROR: Database connectivity check failed";
+    exit 1;
+  fi;
+
+  echo "Health Check 3: Application user connectivity...";
+  USER_CHECK=$(PGPASSWORD="$DB_PASSWORD" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" 2>&1);
+  if [[ "$USER_CHECK" == *"1"* ]]; then
+    echo "Application user '"'"'$DB_USER'"'"' can connect";
+  else
+    echo "WARNING: Application user connectivity check inconclusive";
+  fi;
+
+  if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then
+    echo "Health Check 4: pgvector extension...";
+    EXT_CHECK=$(sudo -u postgres psql -c "SELECT * FROM pg_extension WHERE extname = '"'"'vector'"'"';" 2>&1);
+    if [[ "$EXT_CHECK" == *"vector"* ]] || [[ "$EXT_CHECK" == *"1 row"* ]]; then
+      echo "pgvector extension is installed";
+    else
+      echo "WARNING: pgvector extension status unclear";
+    fi
   fi
-fi
+'
+
+# ============================================
+# Write READY sentinel (always runs, even if script re-run)
+# ============================================
+echo "[$(date -Iseconds)] Writing READY sentinel..."
+echo "READY" > "$SENTINEL_DIR/READY"
+echo "[$(date -Iseconds)] ✅ READY sentinel written to $SENTINEL_DIR/READY"
 
 # ============================================
 # Completion
@@ -407,6 +409,7 @@ echo "[$(date -Iseconds)]   Port: 5432"
 echo "[$(date -Iseconds)]   Mount Point: $MOUNT_POINT"
 echo "[$(date -Iseconds)]   pgvector Enabled: $PGVECTOR_ENABLED"
 echo "[$(date -Iseconds)]   Log File: $LOG_FILE"
+echo "[$(date -Iseconds)]   Sentinel Dir: $SENTINEL_DIR"
 echo "[$(date -Iseconds)] ================================================================"
 echo "[$(date -Iseconds)] Next steps:"
 echo "[$(date -Iseconds)]   1. Verify database connectivity from application"

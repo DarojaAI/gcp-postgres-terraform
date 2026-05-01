@@ -367,6 +367,18 @@ variable "github_actions_backup_reader_sa" {
   default     = ""
 }
 
+variable "nat_project_id" {
+  description = "Project containing the Cloud NAT router (defaults to var.project_id)"
+  type        = string
+  default     = ""
+}
+
+variable "allow_github_actions_ingress" {
+  description = "Allow GitHub Actions runners to connect to PostgreSQL. When true, fetches GitHub IP ranges and adds them to the firewall rule. Default false."
+  type        = bool
+  default     = false
+}
+
 variable "enable_oslogin" {
   description = "Enable OS Login for SSH access (alternative to managing SSH keys)"
   type        = bool
