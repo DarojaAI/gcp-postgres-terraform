@@ -30,7 +30,10 @@ module "postgres_module" {
   postgres_db_user     = var.postgres_db_user
   postgres_db_password = var.postgres_db_password
 
-  disk_size_gb = var.disk_size_gb
+  disk_size_gb                = var.disk_size_gb
+  disk_type                   = var.disk_type
+  backup_bucket_force_destroy = var.backup_bucket_force_destroy
+  log_all_statements          = var.log_all_statements
 
   assign_external_ip = var.assign_external_ip
 

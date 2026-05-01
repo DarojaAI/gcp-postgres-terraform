@@ -146,7 +146,7 @@ resource "google_storage_bucket" "postgres_backups" {
   project       = var.project_id
   name          = var.backup_bucket_name != "" ? var.backup_bucket_name : "${var.repo_prefix}-${var.environment}-postgres-backups"
   location      = var.region
-  force_destroy = true
+  force_destroy = var.backup_bucket_force_destroy
 
   versioning {
     enabled = true
@@ -367,6 +367,7 @@ resource "google_compute_instance" "postgres" {
     shared_buffers       = var.shared_buffers
     work_mem             = var.work_mem
     maintenance_work_mem = var.maintenance_work_mem
+    log_all_statements   = var.log_all_statements
     retry_delay          = "2"
     internal_ip          = google_compute_address.postgres_ip.address
     INTERNAL_IP          = google_compute_address.postgres_ip.address

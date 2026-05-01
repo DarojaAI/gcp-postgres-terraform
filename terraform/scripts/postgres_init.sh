@@ -201,7 +201,7 @@ effective_io_concurrency = 200
 $(if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then echo "shared_preload_libraries = 'pgvector'"; fi)
 
 # Logging
-log_statement = 'all'
+$(if [[ "$LOG_ALL_STATEMENTS" == "true" ]] || [[ "$LOG_ALL_STATEMENTS" == "1" ]]; then echo "log_statement = 'all'"; fi)
 log_duration = true
 log_min_duration_statement = 1000
 log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
