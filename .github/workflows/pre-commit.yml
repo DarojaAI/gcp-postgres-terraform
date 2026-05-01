@@ -9,6 +9,7 @@ on:
     branches:
       - master
       - main
+  workflow_dispatch:
 
 jobs:
   pre-commit:
@@ -64,6 +65,11 @@ jobs:
         run: |
           pip install yamllint
           yamllint -s .github/workflows/ || true
+
+      - name: Run Checkov security scan
+        run: |
+          pip install checkov
+          checkov --directory . --compact || true
 
       - name: Check shell scripts with shellcheck
         run: |
