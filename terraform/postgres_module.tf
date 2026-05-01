@@ -39,6 +39,7 @@ data "google_compute_router_nat" "main" {
   # Use var.nat_project_id if set, otherwise fall back to var.project_id
   project = var.nat_project_id != "" ? var.nat_project_id : var.project_id
   region  = var.region
+  router  = "router-${var.vpc_name}"
   name    = "nat-${var.vpc_name}"
 }
 
