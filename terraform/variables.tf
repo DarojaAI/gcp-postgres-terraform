@@ -372,3 +372,9 @@ variable "enable_oslogin" {
   type        = bool
   default     = true
 }
+
+variable "nat_project_id" {
+  description = "Project containing the Cloud NAT router (defaults to var.project_id)"
+  type        = string
+  default     = ""
+}
