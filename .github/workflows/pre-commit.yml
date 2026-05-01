@@ -69,3 +69,14 @@ jobs:
         run: |
           apt-get update && apt-get install -y shellcheck
           find . -name '*.sh' -not -path './.git/*' -exec shellcheck {} \; || true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~1.6
+
+      - name: Terraform Validate
+        run: |
+          cd terraform
+          terraform init -backend=false
+          terraform validate
