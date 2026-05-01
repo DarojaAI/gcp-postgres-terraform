@@ -100,12 +100,24 @@ variable "disk_size_gb" {
 variable "disk_type" {
   description = "Type of persistent disk"
   type        = string
-  default     = "pd-standard"
+  default     = "pd-balanced"
 
   validation {
     condition     = contains(["pd-standard", "pd-ssd", "pd-balanced"], var.disk_type)
     error_message = "Disk type must be pd-standard, pd-ssd, or pd-balanced."
   }
+}
+
+variable "backup_bucket_force_destroy" {
+  description = "Force destroy the backup bucket when running terraform destroy"
+  type        = bool
+  default     = false
+}
+
+variable "log_all_statements" {
+  description = "Log all SQL statements (Warning: may contain sensitive data in logs)"
+  type        = bool
+  default     = false
 }
 
 variable "vpc_name" {
