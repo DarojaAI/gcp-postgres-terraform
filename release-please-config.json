@@ -1,6 +1,7 @@
 {
   "packages": {
     ".": {
+      "include-component-in-tag": false,
       "release-type": "terraform-module",
       "package-name": "gcp-postgres-terraform",
       "changelog-path": "CHANGELOG.md",
