@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v3.0.0...v3.0.1) (2026-05-02)
+
+
+### Bug Fixes
+
+* limit GitHub Actions IPs to 5000 (GCP firewall rule limit) ([#38](https://github.com/DarojaAI/gcp-postgres-terraform/issues/38)) ([04cfc03](https://github.com/DarojaAI/gcp-postgres-terraform/commit/04cfc03ee928279b79dc80e20423d078340e3a3c))
+
 ## [3.0.0](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v2.0.0...v3.0.0) (2026-05-02)
 
 
