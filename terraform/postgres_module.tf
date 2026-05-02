@@ -30,7 +30,7 @@ locals {
     for cidr in jsondecode(data.http.github_actions_ips[0].response_body).actions :
     length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
   ] : []
-  github_actions_cidrs = distinct(local.github_actions_ipv4)
+  github_actions_cidrs = slice(distinct(local.github_actions_ipv4), 0, 5000)
 }
 
 # NAT router lookup for preflight validation
@@ -82,7 +82,7 @@ resource "google_project_service" "secretmanager" {
 
 resource "google_compute_firewall" "allow_postgres" {
   project = var.project_id
-  name    = "pg-${var.instance_name}-allow-postgres"
+  name    = "${var.instance_name}-allow-postgres"
   network = var.vpc_name
 
   allow {
@@ -108,7 +108,7 @@ resource "google_compute_firewall" "allow_postgres" {
 resource "google_compute_firewall" "allow_ssh" {
   project = var.project_id
   count   = length(var.allow_ssh_from_cidrs) > 0 ? 1 : 0
-  name    = "pg-${var.instance_name}-allow-ssh"
+  name    = "${var.instance_name}-allow-ssh"
   network = var.vpc_name
 
   allow {
@@ -123,7 +123,7 @@ resource "google_compute_firewall" "allow_ssh" {
 resource "google_compute_firewall" "allow_egress" {
   project = var.project_id
   count   = var.enable_cloud_nat ? 1 : 0
-  name    = "pg-${var.instance_name}-allow-egress"
+  name    = "${var.instance_name}-allow-egress"
   network = var.vpc_name
 
   direction = "EGRESS"
@@ -191,7 +191,7 @@ resource "google_storage_bucket" "postgres_backups" {
 
 resource "google_compute_disk" "postgres_data" {
   project = var.project_id
-  name    = "pg-${var.instance_name}-data"
+  name    = "${var.instance_name}-data"
   type    = var.disk_type
   zone    = var.zone
   size    = var.disk_size_gb
@@ -208,7 +208,7 @@ resource "google_compute_disk" "postgres_data" {
 
 resource "google_compute_address" "postgres_ip" {
   project      = var.project_id
-  name         = "pg-${var.instance_name}-ip"
+  name         = "${var.instance_name}-ip"
   address_type = "INTERNAL"
   subnetwork   = var.subnet_id
   region       = var.region
@@ -217,7 +217,7 @@ resource "google_compute_address" "postgres_ip" {
 resource "google_compute_address" "postgres_external_ip" {
   project      = var.project_id
   count        = var.assign_external_ip ? 1 : 0
-  name         = "pg-${var.instance_name}-external-ip"
+  name         = "${var.instance_name}-external-ip"
   address_type = "EXTERNAL"
   network_tier = "STANDARD"
   region       = var.region
@@ -230,7 +230,7 @@ resource "google_compute_address" "postgres_external_ip" {
 resource "google_service_account" "postgres_vm" {
   project = var.project_id
   # Limit account_id to 30 chars: use substr to truncate instance_name if needed
-  account_id   = substr("pg-${var.instance_name}-vm", 0, 30)
+  account_id   = substr("${var.instance_name}-vm", 0, 30)
   display_name = "PostgreSQL VM - ${var.instance_name}"
   description  = "Service account for PostgreSQL VM ${var.instance_name}"
 }
@@ -328,7 +328,7 @@ resource "google_secret_manager_secret_iam_member" "postgres_vm_secret_access" {
 
 resource "google_compute_instance" "postgres" {
   project      = var.project_id
-  name         = "pg-${var.instance_name}"
+  name         = "${var.instance_name}"
   machine_type = var.machine_type
   zone         = var.zone
 
@@ -425,7 +425,7 @@ resource "google_compute_instance" "postgres" {
 resource "google_compute_resource_policy" "postgres_snapshot_policy" {
   project     = var.project_id
   region      = var.region
-  name        = "pg-${var.instance_name}-snapshots"
+  name        = "${var.instance_name}-snapshots"
   description = "Daily snapshots of PostgreSQL data disk"
 
   snapshot_schedule_policy {
