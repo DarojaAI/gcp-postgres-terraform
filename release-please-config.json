@@ -3,7 +3,8 @@
     ".": {
       "release-type": "terraform-module",
       "package-name": "gcp-postgres-terraform",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "include-v-in-tag": true
     }
   }
 }
