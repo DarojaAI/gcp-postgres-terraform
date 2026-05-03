@@ -25,22 +25,22 @@ run_step() {
   local step_num="$1"
   local step_name="$2"
   local step_cmd="$3"
-  local sentinel_file="$SENTINEL_DIR/step-$${step_num}-done"
+  local sentinel_file="$SENTINEL_DIR/step-${step_num}-done"
 
   if [[ -f "$sentinel_file" ]]; then
-    echo "[$(date -Iseconds)] ⏭️  Step $$step_num ($$step_name): skipping (already completed)"
+    echo "[$(date -Iseconds)] ⏭️  Step ${step_num} (${step_name}): skipping (already completed)"
     return 0
   fi
 
-  echo "[$(date -Iseconds)] ===== Step $$step_num: $$step_name ====="
-  eval "$$step_cmd"
+  echo "[$(date -Iseconds)] ===== Step ${step_num}: ${step_name} ====="
+  eval "$step_cmd"
   local result=$?
 
   if [[ $result -eq 0 ]]; then
     touch "$sentinel_file"
-    echo "[$(date -Iseconds)] ✅ Step $$step_num ($$step_name): completed"
+    echo "[$(date -Iseconds)] ✅ Step ${step_num} (${step_name}): completed"
   else
-    echo "[$(date -Iseconds)] ❌ Step $$step_num ($$step_name): failed with exit code $$result"
+    echo "[$(date -Iseconds)] ❌ Step ${step_num} (${step_name}): failed with exit code ${result}"
     return $result
   fi
 }
@@ -60,7 +60,7 @@ apt_retry() {
 
     if [[ $attempt -lt $max_attempts ]]; then
       local sleep_time=$((delay * attempt))  # 10s, 30s, 90s
-      echo "[$(date -Iseconds)] apt-get failed, retrying in $${sleep_time}s..."
+      echo "[$(date -Iseconds)] apt-get failed, retrying in ${sleep_time}s..."
       sleep "$sleep_time"
     fi
 
@@ -334,10 +334,10 @@ if [[ -n "$BACKUP_BUCKET" ]] && [[ "$BACKUP_BUCKET" != "null" ]]; then
 [global]
 repo1-type=s3
 repo1-s3-bucket=$BACKUP_BUCKET
-repo1-s3-region=\$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'"'"'/'"'"' -f4 | sed '"'"'s/-[a-z]\$//'"'"')
+repo1-s3-region=${DOLLAR}(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'/' -f4 | sed 's/-[a-z]${DOLLAR}//')
 
-[stanza:postgres-\$POSTGRES_VERSION]
-db-path=/var/lib/postgresql/\$POSTGRES_VERSION/main
+[stanza:postgres-${POSTGRES_VERSION}]
+db-path=/var/lib/postgresql/${POSTGRES_VERSION}/main
 db-port=5432
 db-user=postgres
 
