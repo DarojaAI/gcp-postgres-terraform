@@ -31,6 +31,13 @@ locals {
     length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
   ] : []
   github_actions_cidrs = slice(distinct(local.github_actions_ipv4), 0, min(5000, length(local.github_actions_ipv4)))
+
+  # Process allow_ssh_from_cidrs: filter IPv6, aggregate to /16, apply 5000 limit
+  ssh_cidrs_raw = [
+    for cidr in var.allow_ssh_from_cidrs :
+    length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
+  ]
+  ssh_cidrs = slice(distinct(local.ssh_cidrs_raw), 0, min(5000, length(local.ssh_cidrs_raw)))
 }
 
 # NAT router lookup for preflight validation
@@ -116,7 +123,7 @@ resource "google_compute_firewall" "allow_ssh" {
     ports    = ["22"]
   }
 
-  source_ranges = var.allow_ssh_from_cidrs
+  source_ranges = local.ssh_cidrs
   target_tags   = ["postgres-server"]
 }
 
