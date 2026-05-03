@@ -77,19 +77,19 @@ exec 1> >(tee -a "$LOG_FILE")
 exec 2> >(tee -a "$LOG_FILE" >&2)
 
 # Template variables (injected by Terraform)
-DB_NAME="${db_name}"
-DB_USER="${db_user}"
-DB_PASSWORD="${db_password}"
-POSTGRES_VERSION="${postgres_version}"
-BACKUP_BUCKET="${backup_bucket}"
-DATA_DISK_DEVICE="${data_disk_device}"
-PGVECTOR_ENABLED="${pgvector_enabled}"
-INIT_SQL="${init_sql}"
-MAX_CONNECTIONS="${max_connections}"
-SHARED_BUFFERS="${shared_buffers}"
-WORK_MEM="${work_mem}"
-MAINTENANCE_WORK_MEM="${maintenance_work_mem}"
-INTERNAL_IP="${internal_ip}"
+DB_NAME='${db_name}'
+DB_USER='${db_user}'
+DB_PASSWORD='${db_password}'
+POSTGRES_VERSION='${postgres_version}'
+BACKUP_BUCKET='${backup_bucket}'
+DATA_DISK_DEVICE='${data_disk_device}'
+PGVECTOR_ENABLED='${pgvector_enabled}'
+INIT_SQL='${init_sql}'
+MAX_CONNECTIONS='${max_connections}'
+SHARED_BUFFERS='${shared_buffers}'
+WORK_MEM='${work_mem}'
+MAINTENANCE_WORK_MEM='${maintenance_work_mem}'
+INTERNAL_IP='${internal_ip}'
 MOUNT_POINT="/mnt/postgres-data"
 
 echo "[$(date -Iseconds)] ========================================="
