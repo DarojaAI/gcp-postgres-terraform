@@ -30,7 +30,7 @@ locals {
     for cidr in jsondecode(data.http.github_actions_ips[0].response_body).actions :
     length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
   ] : []
-  github_actions_cidrs = slice(distinct(local.github_actions_ipv4), 0, 5000)
+  github_actions_cidrs = slice(distinct(local.github_actions_ipv4), 0, min(5000, length(local.github_actions_ipv4)))
 }
 
 # NAT router lookup for preflight validation
