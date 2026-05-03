@@ -30,14 +30,14 @@ locals {
     for cidr in jsondecode(data.http.github_actions_ips[0].response_body).actions :
     length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
   ] : []
-  github_actions_cidrs = slice(distinct(local.github_actions_ipv4), 0, min(5000, length(distinct(local.github_actions_ipv4))))
+  github_actions_cidrs = slice(compact(distinct(local.github_actions_ipv4)), 0, min(5000, length(compact(distinct(local.github_actions_ipv4)))))
 
   # Process allow_ssh_from_cidrs: filter IPv6, aggregate to /16, apply 5000 limit
   ssh_cidrs_raw = [
     for cidr in var.allow_ssh_from_cidrs :
     length(regexall(":", cidr)) > 0 ? "" : format("%s.0.0/16", join(".", slice(split(".", cidr), 0, 2)))
   ]
-  ssh_cidrs = slice(distinct(local.ssh_cidrs_raw), 0, min(5000, length(distinct(local.ssh_cidrs_raw))))
+  ssh_cidrs = slice(compact(distinct(local.ssh_cidrs_raw)), 0, min(5000, length(compact(distinct(local.ssh_cidrs_raw)))))
 }
 
 # NAT router lookup for preflight validation
