@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.0.1](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v4.0.0...v4.0.1) (2026-05-03)
+
+
+### Bug Fixes
+
+* escape bash-local vars in postgres_init.sh to prevent templatefile() errors ([3beaed3](https://github.com/DarojaAI/gcp-postgres-terraform/commit/3beaed346b0bf993b6707109ff8db1b2997c3864))
+
 ## [4.0.0](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v3.0.1...v4.0.0) (2026-05-03)
 
 
