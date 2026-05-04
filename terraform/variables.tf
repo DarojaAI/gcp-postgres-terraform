@@ -384,3 +384,9 @@ variable "enable_oslogin" {
   type        = bool
   default     = true
 }
+
+variable "additional_secret_accessors" {
+  description = "Additional service account emails to grant secretAccessor on all Postgres secrets (e.g., default compute SA for Cloud Run/dbt)"
+  type        = list(string)
+  default     = []
+}

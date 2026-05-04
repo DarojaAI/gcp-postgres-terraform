@@ -323,10 +323,32 @@ resource "google_secret_manager_secret_version" "postgres_host" {
   secret_data = google_compute_address.postgres_ip.address
 }
 
-resource "google_secret_manager_secret_iam_member" "postgres_vm_secret_access" {
-  secret_id = google_secret_manager_secret.postgres_password.id
+# All Postgres secrets that need IAM bindings
+locals {
+  postgres_secrets = {
+    password = google_secret_manager_secret.postgres_password.id
+    user     = google_secret_manager_secret.postgres_user.id
+    db       = google_secret_manager_secret.postgres_db.id
+    host     = google_secret_manager_secret.postgres_host.id
+  }
+  # Flatten: every secret × every SA that needs access
+  secret_iam_bindings = merge([
+    for sa in concat([google_service_account.postgres_vm.email], var.additional_secret_accessors) : {
+      for key, secret_id in local.postgres_secrets :
+      "${key}_${sa}" => {
+        secret_id = secret_id
+        member    = "serviceAccount:${sa}"
+      }
+    }
+  ]...)
+}
+
+resource "google_secret_manager_secret_iam_member" "postgres_secret_access" {
+  for_each = local.secret_iam_bindings
+
+  secret_id = each.value.secret_id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.postgres_vm.email}"
+  member    = each.value.member
 }
 
 # =============================================================================
@@ -335,7 +357,7 @@ resource "google_secret_manager_secret_iam_member" "postgres_vm_secret_access" {
 
 resource "google_compute_instance" "postgres" {
   project      = var.project_id
-  name         = "${var.instance_name}"
+  name         = var.instance_name
   machine_type = var.machine_type
   zone         = var.zone
 
