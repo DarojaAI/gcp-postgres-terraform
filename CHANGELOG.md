@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.0.3](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v4.0.2...v4.0.3) (2026-05-04)
+
+
+### Bug Fixes
+
+* add missing LOG_ALL_STATEMENTS variable and remove pgvector preload ([235746a](https://github.com/DarojaAI/gcp-postgres-terraform/commit/235746aae8bea8cfb7a64c37afa2be23cf22619c))
+* restart PostgreSQL after writing listen_addresses config ([26436c9](https://github.com/DarojaAI/gcp-postgres-terraform/commit/26436c9e4fce3e4ce5d1ca1037ea33f015ebd011))
+
 ## [4.0.2](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v4.0.1...v4.0.2) (2026-05-04)
 
 
