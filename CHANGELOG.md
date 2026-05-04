@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.0.2](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v4.0.1...v4.0.2) (2026-05-04)
+
+
+### Bug Fixes
+
+* add DEBIAN_FRONTEND=noninteractive to prevent blocking apt-get prompts ([c74ecd0](https://github.com/DarojaAI/gcp-postgres-terraform/commit/c74ecd03262bda02366492c3ebfdc4eaaed8b6b1))
+
 ## [4.0.1](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v4.0.0...v4.0.1) (2026-05-03)
 
 
