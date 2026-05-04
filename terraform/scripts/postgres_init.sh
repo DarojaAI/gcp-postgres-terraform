@@ -249,7 +249,10 @@ log_line_prefix = '\''%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '\''
 listen_addresses = '\''*'\''
 EOF
 
-  echo "PostgreSQL configuration updated"
+  echo "PostgreSQL configuration updated";
+  echo "Restarting PostgreSQL to apply listen_addresses change...";
+  systemctl restart "postgresql@$POSTGRES_VERSION-main";
+  echo "PostgreSQL restarted successfully"
 '
 
 # ============================================
