@@ -88,6 +88,7 @@ BACKUP_BUCKET='${backup_bucket}'
 DATA_DISK_DEVICE='${data_disk_device}'
 PGVECTOR_ENABLED='${pgvector_enabled}'
 INIT_SQL='${init_sql}'
+LOG_ALL_STATEMENTS='${log_all_statements}'
 MAX_CONNECTIONS='${max_connections}'
 SHARED_BUFFERS='${shared_buffers}'
 WORK_MEM='${work_mem}'
@@ -236,8 +237,7 @@ maintenance_work_mem = $MAINTENANCE_WORK_MEM
 random_page_cost = 1.1
 effective_io_concurrency = 200
 
-# Extensions
-$(if [[ "$PGVECTOR_ENABLED" == "true" ]] || [[ "$PGVECTOR_ENABLED" == "1" ]]; then echo "shared_preload_libraries = '\''pgvector'\''"; fi)
+# Extensions (pgvector loaded dynamically via CREATE EXTENSION, no preload needed)
 
 # Logging
 $(if [[ "$LOG_ALL_STATEMENTS" == "true" ]] || [[ "$LOG_ALL_STATEMENTS" == "1" ]]; then echo "log_statement = '\''all'\''"; fi)
