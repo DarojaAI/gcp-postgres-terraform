@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+# Prevent interactive prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
+
 # Idempotent sentinel directory
 SENTINEL_DIR="/var/lib/postgres-setup"
 mkdir -p "$SENTINEL_DIR"
