@@ -185,7 +185,9 @@ run_step 4 "Install PostgreSQL" '
     exit 1;
   fi;
   PG_VERSION=$(psql --version);
-  echo "PostgreSQL installed: $PG_VERSION"
+  echo "PostgreSQL installed: $PG_VERSION";
+  echo "Stopping auto-started PostgreSQL so config can be applied before first real start...";
+  systemctl stop "postgresql@$POSTGRES_VERSION-main" || true
 '
 
 # ============================================
@@ -415,7 +417,14 @@ run_step 17 "Health Checks" '
     echo "ERROR: PostgreSQL NOT using data disk! Current: $DATA_DIR";
     echo "Expected: /mnt/postgres-data/pg_data";
     exit 1;
-  fi
+  fi;
+
+  echo "Health Check 6: Verify PostgreSQL is listening on 0.0.0.0...";
+  if ! ss -tlnp | grep -q "0.0.0.0:${POSTGRES_PORT:-5432}"; then
+    echo "ERROR: PostgreSQL is not listening on 0.0.0.0:${POSTGRES_PORT:-5432} — check listen_addresses in postgresql.conf";
+    exit 1;
+  fi;
+  echo "PostgreSQL is listening on 0.0.0.0:${POSTGRES_PORT:-5432}"
 '
 
 # ============================================
