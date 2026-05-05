@@ -94,6 +94,7 @@ SHARED_BUFFERS='${shared_buffers}'
 WORK_MEM='${work_mem}'
 MAINTENANCE_WORK_MEM='${maintenance_work_mem}'
 INTERNAL_IP='${internal_ip}'
+SUBNET_CIDR='${subnet_cidr}'
 MOUNT_POINT="/mnt/postgres-data"
 
 echo "[$(date -Iseconds)] ========================================="
@@ -252,7 +253,19 @@ listen_addresses = '\''*'\''
 EOF
 
   echo "PostgreSQL configuration updated";
-  echo "Restarting PostgreSQL to apply listen_addresses change...";
+
+  echo "Configuring pg_hba.conf for VPC subnet access...";
+  PG_HBA="/etc/postgresql/$POSTGRES_VERSION/main/pg_hba.conf";
+  if ! grep -q "$SUBNET_CIDR" "$PG_HBA" 2>/dev/null; then
+    echo "" >> "$PG_HBA";
+    echo "# Allow VPC subnet (Cloud Run Jobs, internal services)" >> "$PG_HBA";
+    echo "host  all  all  $SUBNET_CIDR  scram-sha-256" >> "$PG_HBA";
+    echo "pg_hba.conf updated with VPC subnet: $SUBNET_CIDR";
+  else
+    echo "pg_hba.conf already contains entry for $SUBNET_CIDR, skipping";
+  fi;
+
+  echo "Restarting PostgreSQL to apply configuration changes...";
   systemctl restart "postgresql@$POSTGRES_VERSION-main";
   echo "PostgreSQL restarted successfully"
 '
@@ -342,7 +355,7 @@ if [[ -n "$BACKUP_BUCKET" ]] && [[ "$BACKUP_BUCKET" != "null" ]]; then
 [global]
 repo1-type=s3
 repo1-s3-bucket=$BACKUP_BUCKET
-repo1-s3-region=${DOLLAR}(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'/' -f4 | sed 's/-[a-z]${DOLLAR}//')
+repo1-s3-region=$$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'/' -f4 | sed 's/-[a-z]$$//')
 
 [stanza:postgres-$${POSTGRES_VERSION}]
 db-path=/var/lib/postgresql/$${POSTGRES_VERSION}/main
@@ -420,11 +433,11 @@ run_step 17 "Health Checks" '
   fi;
 
   echo "Health Check 6: Verify PostgreSQL is listening on 0.0.0.0...";
-  if ! ss -tlnp | grep -q "0.0.0.0:${POSTGRES_PORT:-5432}"; then
-    echo "ERROR: PostgreSQL is not listening on 0.0.0.0:${POSTGRES_PORT:-5432} — check listen_addresses in postgresql.conf";
+  if ! ss -tlnp | grep -q "0.0.0.0:$$${POSTGRES_PORT:-5432}"; then
+    echo "ERROR: PostgreSQL is not listening on 0.0.0.0:$${POSTGRES_PORT:-5432} — check listen_addresses in postgresql.conf";
     exit 1;
   fi;
-  echo "PostgreSQL is listening on 0.0.0.0:${POSTGRES_PORT:-5432}"
+  echo "PostgreSQL is listening on 0.0.0.0:$${POSTGRES_PORT:-5432}"
 '
 
 # ============================================

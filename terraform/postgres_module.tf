@@ -335,7 +335,7 @@ resource "google_secret_manager_secret_iam_member" "postgres_vm_secret_access" {
 
 resource "google_compute_instance" "postgres" {
   project      = var.project_id
-  name         = "${var.instance_name}"
+  name         = var.instance_name
   machine_type = var.machine_type
   zone         = var.zone
 
@@ -395,9 +395,9 @@ resource "google_compute_instance" "postgres" {
     maintenance_work_mem = var.maintenance_work_mem
     log_all_statements   = var.log_all_statements
     retry_delay          = "2"
-    DOLLAR               = "$"
     internal_ip          = google_compute_address.postgres_ip.address
     INTERNAL_IP          = google_compute_address.postgres_ip.address
+    subnet_cidr          = var.subnet_cidr
   })
 
   service_account {
