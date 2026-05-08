@@ -95,6 +95,7 @@ WORK_MEM='${work_mem}'
 MAINTENANCE_WORK_MEM='${maintenance_work_mem}'
 INTERNAL_IP='${internal_ip}'
 SUBNET_CIDR='${subnet_cidr}'
+VPC_CONNECTOR_CIDR='${vpc_connector_cidr}'
 MOUNT_POINT="/mnt/postgres-data"
 
 echo "[$(date -Iseconds)] ========================================="
@@ -264,6 +265,14 @@ EOF
   else
     echo "pg_hba.conf already contains entry for $SUBNET_CIDR, skipping";
   fi;
+  if [[ -n "$VPC_CONNECTOR_CIDR" ]] && ! grep -q "$VPC_CONNECTOR_CIDR" "$PG_HBA" 2>/dev/null; then
+    echo "" >> "$PG_HBA";
+    echo "# Allow VPC connector subnet (Cloud Run via Serverless VPC Access)" >> "$PG_HBA";
+    echo "host  all  all  $VPC_CONNECTOR_CIDR  scram-sha-256" >> "$PG_HBA";
+    echo "pg_hba.conf updated with VPC connector: $VPC_CONNECTOR_CIDR";
+  else
+    echo "pg_hba.conf already contains entry for $VPC_CONNECTOR_CIDR or empty, skipping";
+  fi;
   if ! grep -q "0.0.0.0/0" "$PG_HBA" 2>/dev/null; then
     echo "" >> "$PG_HBA";
     echo "# Allow external access (GitHub Actions, other applications)" >> "$PG_HBA";
@@ -272,8 +281,6 @@ EOF
   else
     echo "pg_hba.conf already contains entry for 0.0.0.0/0, skipping";
   fi;
-
-  echo "Restarting PostgreSQL to apply configuration changes...";
   systemctl restart "postgresql@$POSTGRES_VERSION-main";
   echo "PostgreSQL restarted successfully"
 '

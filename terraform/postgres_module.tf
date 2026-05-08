@@ -400,6 +400,7 @@ resource "google_compute_instance" "postgres" {
     internal_ip          = google_compute_address.postgres_ip.address
     INTERNAL_IP          = google_compute_address.postgres_ip.address
     subnet_cidr          = var.subnet_cidr
+    vpc_connector_cidr    = var.vpc_connector_cidr
   })
 
   service_account {
