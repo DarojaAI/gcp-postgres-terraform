@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.0.5](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v4.0.4...v4.0.5) (2026-05-08)
+
+
+### Bug Fixes
+
+* add 0.0.0.0/0 to pg_hba.conf for external access ([0331527](https://github.com/DarojaAI/gcp-postgres-terraform/commit/0331527b3f89e32c2c2a944eae689b9624192e05))
+* add create_before_destroy to compute instance to prevent 409 race condition ([#54](https://github.com/DarojaAI/gcp-postgres-terraform/issues/54)) ([848935b](https://github.com/DarojaAI/gcp-postgres-terraform/commit/848935bc1735fd1972790bdd595c9cef4a0ec48a))
+* add pg_hba.conf entry for VPC subnet + fix templatefile parse errors ([3ef39e2](https://github.com/DarojaAI/gcp-postgres-terraform/commit/3ef39e234a5645d9298fa8dfd7c6d275d8bfe0a4))
+* convert postgres_init.sh to Unix line endings (CRLF → LF) ([49d9ce4](https://github.com/DarojaAI/gcp-postgres-terraform/commit/49d9ce472b3fa90c1610b3cfcc986755f33f214f))
+* stop postgres after apt install, remove invalid shared_preload_libraries, add listen address health check ([38c5c97](https://github.com/DarojaAI/gcp-postgres-terraform/commit/38c5c97484237cfb0510c47a344f28e91f88bc6c))
+
 ## [4.0.2](https://github.com/DarojaAI/gcp-postgres-terraform/compare/v4.0.1...v4.0.2) (2026-05-04)
 
 
