@@ -254,7 +254,7 @@ EOF
 
   echo "PostgreSQL configuration updated";
 
-  echo "Configuring pg_hba.conf for VPC subnet access...";
+  echo "Configuring pg_hba.conf for VPC subnet and external access...";
   PG_HBA="/etc/postgresql/$POSTGRES_VERSION/main/pg_hba.conf";
   if ! grep -q "$SUBNET_CIDR" "$PG_HBA" 2>/dev/null; then
     echo "" >> "$PG_HBA";
@@ -263,6 +263,14 @@ EOF
     echo "pg_hba.conf updated with VPC subnet: $SUBNET_CIDR";
   else
     echo "pg_hba.conf already contains entry for $SUBNET_CIDR, skipping";
+  fi;
+  if ! grep -q "0.0.0.0/0" "$PG_HBA" 2>/dev/null; then
+    echo "" >> "$PG_HBA";
+    echo "# Allow external access (GitHub Actions, other applications)" >> "$PG_HBA";
+    echo "host  all  all  0.0.0.0/0  scram-sha-256" >> "$PG_HBA";
+    echo "pg_hba.conf updated with 0.0.0.0/0 for external access";
+  else
+    echo "pg_hba.conf already contains entry for 0.0.0.0/0, skipping";
   fi;
 
   echo "Restarting PostgreSQL to apply configuration changes...";
