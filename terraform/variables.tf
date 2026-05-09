@@ -94,8 +94,8 @@ variable "machine_type" {
   default     = "e2-micro"
 
   validation {
-    condition     = contains(["e2-micro", "e2-small", "e2-medium", "n1-standard-1", "n1-standard-2"], var.machine_type)
-    error_message = "Machine type must be e2-micro, e2-small, e2-medium, n1-standard-1, or n2-standard-1."
+    condition     = contains(["e2-micro", "e2-small", "e2-medium", "e2-standard-2", "e2-standard-4", "n1-standard-1", "n1-standard-2", "n2-standard-1", "n2-standard-2"], var.machine_type)
+    error_message = "Machine type must be e2-micro, e2-small, e2-medium, e2-standard-2, e2-standard-4, n1-standard-1, n1-standard-2, n2-standard-1, or n2-standard-2."
   }
 }
 
