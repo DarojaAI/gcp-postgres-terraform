@@ -236,8 +236,9 @@ resource "google_compute_address" "postgres_external_ip" {
 
 resource "google_service_account" "postgres_vm" {
   project = var.project_id
-  # Limit account_id to 30 chars: use substr to truncate instance_name if needed
-  account_id   = substr("${var.instance_name}-vm", 0, 30)
+  # Limit account_id to 30 chars: suffix -vm is 3 chars, GCP SA limit is 30
+  # For names >27 chars (leaving room for -vm suffix), use sha1(instance_name) truncated to 7
+  account_id   = length(var.instance_name) > 27 ? substr("${var.instance_name}-${ substr(sha1(var.instance_name), 0, 7)}", 0, 30) : substr("${var.instance_name}-vm", 0, 30)
   display_name = "PostgreSQL VM - ${var.instance_name}"
   description  = "Service account for PostgreSQL VM ${var.instance_name}"
 }
