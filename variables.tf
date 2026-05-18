@@ -111,7 +111,7 @@ variable "disk_type" {
 variable "backup_bucket_force_destroy" {
   description = "Force destroy the backup bucket when running terraform destroy"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "log_all_statements" {
