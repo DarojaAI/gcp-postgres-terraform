@@ -348,6 +348,13 @@ resource "google_compute_instance" "postgres" {
   lifecycle {
     create_before_destroy = true
 
+    # Ignore enable_display drift between GCP provider versions.
+    # When the live VM has enable_display=false but state has no value
+    # (the provider default), every plan shows replacement needed.
+    ignore_changes = [
+      enable_display,
+    ]
+
     precondition {
       condition     = var.assign_external_ip || !var.enable_cloud_nat || length(data.google_compute_router_nat.main) > 0
       error_message = "Cloud NAT is required when assign_external_ip=false and enable_cloud_nat=true. Ensure NAT is configured in the VPC (set var.nat_project_id if NAT lives in a different project)."
