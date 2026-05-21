@@ -41,13 +41,16 @@ locals {
 }
 
 # NAT router lookup for preflight validation
+# Router and NAT names follow gcp-vpc-egress-terraform naming:
+#   router = "{vpc_name}-router" (e.g., dev-nexus-dev-vpc-router)
+#   nat    = "{vpc_name}-nat"   (e.g., dev-nexus-dev-vpc-nat)
 data "google_compute_router_nat" "main" {
   count = var.enable_cloud_nat && !var.assign_external_ip ? 1 : 0
   # Use var.nat_project_id if set, otherwise fall back to var.project_id
   project = var.nat_project_id != "" ? var.nat_project_id : var.project_id
   region  = var.region
-  router  = "router-${var.vpc_name}"
-  name    = "nat-${var.vpc_name}"
+  router  = "${var.vpc_name}-router"
+  name    = "${var.vpc_name}-nat"
 }
 
 # Enable required GCP APIs
