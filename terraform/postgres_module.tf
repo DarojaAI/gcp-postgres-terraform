@@ -353,6 +353,11 @@ resource "google_compute_instance" "postgres" {
     # (the provider default), every plan shows replacement needed.
     ignore_changes = [
       enable_display,
+      # metadata_startup_script is sensitive so Terraform can't compare values
+      # between state and config. Changes (e.g., adding init_sql) show as
+      # replacement needed even when the VM is healthy. Ignore to allow
+      # brown-field migration with postgres-platform wrapper.
+      metadata_startup_script,
     ]
 
     precondition {
