@@ -348,15 +348,14 @@ resource "google_compute_instance" "postgres" {
   lifecycle {
     create_before_destroy = true
 
-    # Ignore enable_display drift between GCP provider versions.
-    # When the live VM has enable_display=false but state has no value
-    # (the provider default), every plan shows replacement needed.
+    # NOTE: enable_display ignore_changes removed — verify plan stays clean in v7.31.0
+    # If plan shows replacement, re-add with a tracking issue.
+
+    # metadata_startup_script is sensitive so Terraform can't compare values
+    # between state and config. Changes (e.g., adding init_sql) show as
+    # replacement needed even when the VM is healthy. Ignore to allow
+    # brown-field migration with postgres-platform wrapper.
     ignore_changes = [
-      enable_display,
-      # metadata_startup_script is sensitive so Terraform can't compare values
-      # between state and config. Changes (e.g., adding init_sql) show as
-      # replacement needed even when the VM is healthy. Ignore to allow
-      # brown-field migration with postgres-platform wrapper.
       metadata_startup_script,
     ]
 
