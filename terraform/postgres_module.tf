@@ -348,13 +348,24 @@ resource "google_compute_instance" "postgres" {
   lifecycle {
     create_before_destroy = true
 
-    # NOTE: enable_display ignore_changes removed — verify plan stays clean in v7.31.0
-    # If plan shows replacement, re-add with a tracking issue.
+    # NOTE: enable_display ignore_changes removed — verified clean in v7.31.0 (2026-05-22)
 
-    # metadata_startup_script is sensitive so Terraform can't compare values
-    # between state and config. Changes (e.g., adding init_sql) show as
-    # replacement needed even when the VM is healthy. Ignore to allow
-    # brown-field migration with postgres-platform wrapper.
+    # TODO(https://github.com/DarojaAI/gcp-postgres-terraform/issues/69): metadata_startup_script ignore_changes
+    #
+    # Root cause: The startup script contains the DB password — marked sensitive by the GCP provider.
+    # Sensitive values can't be compared in Terraform state, so any config change (e.g., adding init_sql)
+    # triggers replacement even when the VM is healthy. The create_before_destroy replacement fails with 409
+    # due to disk attachment ordering (disk stays attached to old instance during creation window).
+    #
+    # Trade-off: This masks drift detection. If someone modifies the VM's startup script externally,
+    # Terraform won't notice. Safe during migration because:
+    #   - init_sql is idempotent (schema applied via Atlas migrations separately)
+    #   - VM replacement would lose data if not handled carefully
+    #
+    # Resolving options:
+    #   1. Accept one VM replacement after migration stabilizes, then remove ignore_changes
+    #   2. Rework init_sql injection to use separate mechanism (SSH/cloud-init) so startup script stays static
+    #   3. Fix disk dependency ordering in create_before_destroy (complex GCP workaround)
     ignore_changes = [
       metadata_startup_script,
     ]
