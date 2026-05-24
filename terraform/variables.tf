@@ -78,6 +78,13 @@ variable "postgres_db_user" {
   default     = "postgres"
 }
 
+
+variable "postgres_port" {
+  description = "PostgreSQL port"
+  type        = number
+  default     = 5432
+}
+
 variable "postgres_db_password" {
   description = "PostgreSQL database password"
   type        = string
