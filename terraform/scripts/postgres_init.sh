@@ -63,7 +63,7 @@ apt_retry() {
 
     if [[ $attempt -lt $max_attempts ]]; then
       local sleep_time=$((delay * attempt))  # 10s, 30s, 90s
-      echo "[$(date -Iseconds)] apt-get failed, retrying in ${sleep_time}s..."
+      echo "[$(date -Iseconds)] apt-get failed, retrying in $${sleep_time}s..."
       sleep "$sleep_time"
     fi
 
