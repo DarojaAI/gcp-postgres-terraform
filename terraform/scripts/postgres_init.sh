@@ -442,12 +442,12 @@ run_step 17 "Health Checks" '
 
   echo "Health Check 6: Verify PostgreSQL is listening...";
   # ss -tlnp may show "0.0.0.0:5432" or "*:5432" depending on version
-  # We check for :${POSTGRES_PORT:-5432} (colon + port) to match either
-  if ! ss -tlnp | grep -q ":${POSTGRES_PORT:-5432}"; then
-    echo "ERROR: PostgreSQL is not listening on port ${POSTGRES_PORT:-5432} — check listen_addresses in postgresql.conf";
+  # We check for :$${POSTGRES_PORT:-5432} (colon + port) to match either
+  if ! ss -tlnp | grep -q ":$${POSTGRES_PORT:-5432}"; then
+    echo "ERROR: PostgreSQL is not listening on port $${POSTGRES_PORT:-5432} — check listen_addresses in postgresql.conf";
     exit 1
   fi;
-  echo "PostgreSQL is listening on port ${POSTGRES_PORT:-5432}"
+  echo "PostgreSQL is listening on port $${POSTGRES_PORT:-5432}"
 '
 
 # ============================================
@@ -468,7 +468,7 @@ echo "[$(date -Iseconds)] Summary:"
 echo "[$(date -Iseconds)]   PostgreSQL Version: $POSTGRES_VERSION"
 echo "[$(date -Iseconds)]   Database: $DB_NAME"
 echo "[$(date -Iseconds)]   User: $DB_USER"
-echo "[$(date -Iseconds)]   Port: ${POSTGRES_PORT:-5432}"
+echo "[$(date -Iseconds)]   Port: $${POSTGRES_PORT:-5432}"
 echo "[$(date -Iseconds)]   Mount Point: $MOUNT_POINT"
 echo "[$(date -Iseconds)]   pgvector Enabled: $PGVECTOR_ENABLED"
 echo "[$(date -Iseconds)]   Log File: $LOG_FILE"
