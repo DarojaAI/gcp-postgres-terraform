@@ -1,0 +1,88 @@
+name: Deploy PostgreSQL Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/terraform/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: us-central1
+  GCP_ZONE: us-central1-b
+
+jobs:
+  validate:
+    name: Pre-flight Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validators
+        run: |
+          pip install pydantic
+          # In real usage: pip install git+https://github.com/DarojaAI/gcp-postgres-terraform.git#subdirectory=validators
+          # For this example, we copy the validators locally
+
+      - name: Validate configuration
+        env:
+          POSTGRES_INSTANCE_NAME: myapp-prod-pg
+          REPO_PREFIX: myapp
+          ENVIRONMENT: prod
+          POSTGRES_VERSION: "15"
+          POSTGRES_MACHINE_TYPE: e2-medium
+          POSTGRES_DB_PASSWORD: ${{ secrets.POSTGRES_DB_PASSWORD }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'validators')
+          from config import PostgresConfig, validate_module_inputs
+          errors = validate_module_inputs()
+          if errors:
+              print('❌ Validation failed:')
+              for e in errors:
+                  print(f'  - {e}')
+              sys.exit(1)
+          print('✅ All validations passed')
+          "
+
+  terraform:
+    name: Terraform Apply
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.TF_SERVICE_ACCOUNT }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.15.0"
+
+      - name: Terraform Init
+        working-directory: deploy/terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: deploy/terraform
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: deploy/terraform
+        run: terraform apply -auto-approve tfplan
