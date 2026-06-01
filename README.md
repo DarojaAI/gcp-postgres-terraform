@@ -177,6 +177,103 @@ Compare the `current_secrets` output with your application's Secret Manager valu
 
 ---
 
+## Validators (Fail Fast)
+
+The module includes Python validators to catch misconfigurations **before** `terraform apply` runs. This turns silent failures (wrong secret name → empty string) into explicit errors caught in 100ms.
+
+### Usage
+
+```bash
+pip install git+https://github.com/DarojaAI/gcp-postgres-terraform.git#subdirectory=validators
+
+# Validate from environment variables
+python -m validators.config
+
+# Or in Python
+from validators.config import PostgresConfig, validate_module_inputs
+errors = validate_module_inputs()
+if errors:
+    raise ValueError(f"Config errors: {errors}")
+```
+
+### What Gets Validated
+
+- `project_id` format (6-30 chars, GCP-compliant)
+- `instance_name` not generic (`postgres`, `default`, `main`)
+- `repo_prefix` customized (not left as `rag-research`)
+- `machine_type` in allowed list
+- `postgres_version` supported (14/15/16)
+- `region` / `zone` consistency
+- Password strength (12+ chars, not common)
+- `github_repo` format (`owner/repo`)
+- CIDR block validity
+- `init_sql` file existence
+
+### CI/CD Integration
+
+Add to your GitHub Actions workflow **before** `terraform plan`:
+
+```yaml
+- name: Validate Postgres Config
+  env:
+    GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    POSTGRES_INSTANCE_NAME: myapp-prod-pg
+    REPO_PREFIX: myapp
+    POSTGRES_DB_PASSWORD: ${{ secrets.POSTGRES_DB_PASSWORD }}
+  run: python -m validators.config
+```
+
+See [validators/config.py](validators/config.py) for full implementation.
+
+---
+
+## Examples
+
+### Complete: Cloud Run + PostgreSQL
+
+A full end-to-end example showing:
+- Module import with git source
+- Cloud Run service wired to PostgreSQL
+- VPC connector for private connectivity
+- GitHub Actions CI/CD with validator pre-flight
+
+Location: [`examples/complete/`](examples/complete/)
+
+```bash
+cp -r examples/complete/* ./my-project/
+cd my-project/deploy/terraform
+# Edit terraform.tfvars, then:
+terraform init && terraform plan
+```
+
+### Bootstrap Script
+
+One-command setup for new repos:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/DarojaAI/gcp-postgres-terraform/main/templates/new-repo-setup.sh | bash -s -- \
+  --project-id my-gcp-123 \
+  --repo-prefix myapp \
+  --instance-name myapp-prod-pg
+```
+
+This creates the full directory structure, terraform files, and GitHub Actions workflow.
+
+---
+
+## 45-Minute Setup Checklist
+
+New to the module? Follow the [SETUP_CHECKLIST.md](docs/SETUP_CHECKLIST.md) for a step-by-step guide from zero to deployed PostgreSQL.
+
+| Phase | Time | What |
+|-------|------|------|
+| Prerequisites | 10 min | GCP project, gcloud, Terraform |
+| Copy template | 5 min | Clone example, customize names |
+| Configure | 10 min | Edit terraform.tfvars |
+| Validate | 5 min | Run Python validators |
+| Deploy | 15 min | `terraform init && apply` |
+
+---
 
 ## Repository Structure
 
