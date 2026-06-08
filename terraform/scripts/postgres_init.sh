@@ -321,21 +321,25 @@ SQL
 # ============================================
 # Step 14: Create Database and User
 # ============================================
-run_step 14 "Create Database and User" '
-  echo "Creating database '\'$DB_NAME'\' and user '\'$DB_USER'\'...";
-
-  sudo -u postgres psql << SQL
-CREATE DATABASE "$DB_NAME";
-CREATE USER "$DB_USER" WITH PASSWORD '\'$DB_PASSWORD'\';
-ALTER ROLE "$DB_USER" SET search_path = public;
-GRANT CONNECT ON DATABASE "$DB_NAME" TO "$DB_USER";
-GRANT USAGE ON SCHEMA public TO "$DB_USER";
-GRANT CREATE ON SCHEMA public TO "$DB_USER";
-GRANT ALL PRIVILEGES ON DATABASE "$DB_NAME" TO "$DB_USER";
-SQL
-
-  echo "Database and user created"
-'
+# NOTE: The run_step argument is DOUBLE-quoted (not single-quoted) so
+# $DB_PASSWORD is expanded at the call site, not inside the eval'd heredoc.
+# The previous single-quoted + '\''$DB_PASSWORD'\'' pattern interacted badly
+# with eval on bash 5.1 (Ubuntu 22.04), producing SQL with the password
+# unquoted (syntax error) and silently "completing" the step with a broken DB.
+# -v ON_ERROR_STOP=1 makes psql fail the step on any SQL error.
+run_step 14 "Create Database and User" "
+  echo \"Creating database \$DB_NAME and user \$DB_USER...\";
+  sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOSQL
+CREATE DATABASE \"\$DB_NAME\";
+CREATE USER \"\$DB_USER\" WITH PASSWORD '\$DB_PASSWORD';
+ALTER ROLE \"\$DB_USER\" SET search_path = public;
+GRANT CONNECT ON DATABASE \"\$DB_NAME\" TO \"\$DB_USER\";
+GRANT USAGE ON SCHEMA public TO \"\$DB_USER\";
+GRANT CREATE ON SCHEMA public TO \"\$DB_USER\";
+GRANT ALL PRIVILEGES ON DATABASE \"\$DB_NAME\" TO \"\$DB_USER\";
+EOSQL
+  echo \"Database and user created\"
+"
 
 # ============================================
 # Step 15: Run Custom Init SQL (if provided)
