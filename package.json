@@ -1,0 +1,6 @@
+{
+  "name": "gcp-postgres-terraform",
+  "version": "4.2.9",
+  "private": true,
+  "description": "Terraform module for PostgreSQL on GCP Compute Engine"
+}
