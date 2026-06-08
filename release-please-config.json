@@ -1,11 +1,11 @@
 {
   "packages": {
     ".": {
-      "include-component-in-tag": false,
-      "release-type": "terraform-module",
-      "package-name": "gcp-postgres-terraform",
-      "changelog-path": "CHANGELOG.md",
-      "initial-version": "1.31.0"
+      "release-type": "terraform",
+      "bump-minor-pre-major": false,
+      "bump-patch-for-minor-pre-major": false,
+      "draft": false,
+      "prerelease": false
     }
   }
 }
