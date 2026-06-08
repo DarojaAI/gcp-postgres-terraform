@@ -22,3 +22,31 @@ jobs:
       skip-dirty-check: true
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
+  update-versions-md:
+    name: Update VERSIONS.md
+    needs: semantic-release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get latest tag
+        id: tag
+        run: |
+          LATEST=$(git describe --tags --abbrev=0)
+          echo "version=${LATEST#v}" >> "$GITHUB_OUTPUT"
+          echo "Latest tag: $LATEST"
+      - name: Update VERSIONS.md
+        env:
+          NEW_VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          sed -i "s|## Current Version: .*|## Current Version: ${NEW_VERSION}|" VERSIONS.md
+          git diff --exit-code VERSIONS.md > /dev/null && echo "No change needed" && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSIONS.md
+          git commit -m "chore(release): update VERSIONS.md to ${NEW_VERSION} [skip ci]"
+          git push
