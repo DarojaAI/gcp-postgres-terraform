@@ -1,3 +1,7 @@
+# Source of truth: the "version" field in package.json.
+# semantic-release reads it directly; do not add a .release-please-manifest.json.
+# The reusable workflow also maintains a VERSION file in the repo root.
+#
 name: Release
 
 on:
