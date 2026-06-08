@@ -18,7 +18,8 @@ env:
 
 jobs:
   terraform:
-    name: Terraform ${{ github.event_name == 'pull_request' && 'Validate' || format('Plan [{0}]', inputs.environment) }}
+    # Job name = check context. Must stay "terraform-plan" to match branch protection.
+    name: terraform-plan
     runs-on: ubuntu-latest
     permissions:
       id-token: write
