@@ -148,6 +148,16 @@ variable "subnet_id" {
   default     = ""
 }
 
+variable "subnet_cidr" {
+  description = "CIDR range of the subnet (required by the nested module for VPC firewall rules; e.g. '10.0.0.0/24')"
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.subnet_cidr, 0))
+    error_message = "subnet_cidr must be a valid CIDR range (e.g., '10.0.0.0/24')"
+  }
+}
+
 variable "vpc_connector_cidr" {
   description = "DEPRECATED: VPC connector is now created by vpc-infra module. This variable is ignored."
   type        = string

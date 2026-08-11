@@ -21,6 +21,7 @@ module "postgres_module" {
   subnet_name = var.subnet_name
   network_id  = var.network_id
   subnet_id   = var.subnet_id
+  subnet_cidr = var.subnet_cidr
 
   instance_name = var.instance_name
   machine_type  = var.machine_type
