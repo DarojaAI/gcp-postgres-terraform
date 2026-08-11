@@ -327,10 +327,81 @@ resource "google_secret_manager_secret_version" "postgres_host" {
   secret_data = google_compute_address.postgres_ip.address
 }
 
+# -----------------------------------------------------------------------------
+# postgres_port — stored in Secret Manager so cross-project consumers can
+# reference it via a fully-qualified resource name (see
+# google_secret_manager_secret_iam_member.cross_project_grants below).
+# -----------------------------------------------------------------------------
+resource "google_secret_manager_secret" "postgres_port" {
+  project   = var.project_id
+  secret_id = "${var.repo_prefix}-${var.environment}-postgres-port"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "postgres_port" {
+  secret      = google_secret_manager_secret.postgres_port.id
+  secret_data = tostring(var.postgres_port)
+}
+
 resource "google_secret_manager_secret_iam_member" "postgres_vm_secret_access" {
   secret_id = google_secret_manager_secret.postgres_password.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.postgres_vm.email}"
+}
+
+# -----------------------------------------------------------------------------
+# Cross-project IAM grants for shared-DB consumers.
+#
+# Some services in *other* GCP projects need to read these Postgres secrets
+# at runtime (e.g. `DarojaAI/research-orchestrator` after PR #42 consolidated
+# its Cognee working DB onto this Postgres instance). The grant must live
+# in this module — the one that owns the secrets — not in the consumer.
+#
+# Usage:
+#   cross_project_iam_grants = {
+#     "research-orchestrator" = {
+#       project_number = "<orchestrator project number>"
+#       member_format  = "serviceAccount"  # uses default Compute SA
+#       role           = "roles/secretmanager.secretAccessor"
+#     }
+#   }
+#
+# Apply order: this IAM grant first, verify with
+#   gcloud secrets get-iam-policy <secret-id>
+# then deploy the consumer, then drop any duplicate IAM bindings the
+# consumer's terraform used to emit.
+# -----------------------------------------------------------------------------
+resource "google_secret_manager_secret_iam_member" "cross_project_grants" {
+  for_each = {
+    for entry in flatten([
+      for consumer, cfg in var.cross_project_iam_grants : [
+        for secret_key in keys(local.postgres_secret_resource_ids) : {
+          consumer   = consumer
+          secret_key = secret_key
+          secret_id  = local.postgres_secret_resource_ids[secret_key]
+          member     = cfg.member_format == "serviceAccount" ? "serviceAccount:${cfg.project_number}-compute@developer.gserviceaccount.com" : cfg.member_format
+          role       = cfg.role
+        }
+      ]
+    ]) : "${entry.consumer}.${entry.secret_key}" => entry
+  }
+
+  secret_id = each.value.secret_id
+  role      = each.value.role
+  member    = each.value.member
+}
+
+locals {
+  postgres_secret_resource_ids = {
+    "postgres-host"     = google_secret_manager_secret.postgres_host.id
+    "postgres-port"     = google_secret_manager_secret.postgres_port.id
+    "postgres-db"       = google_secret_manager_secret.postgres_db.id
+    "postgres-user"     = google_secret_manager_secret.postgres_user.id
+    "postgres-password" = google_secret_manager_secret.postgres_password.id
+  }
 }
 
 # =============================================================================
