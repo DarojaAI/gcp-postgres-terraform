@@ -312,3 +312,13 @@ variable "enable_oslogin" {
   type        = bool
   default     = true
 }
+
+variable "cross_project_iam_grants" {
+  description = "Map of consumer name -> IAM grant config for cross-project secret access. The IAM binding lives in the module that owns the secrets, not in the consumer's terraform. See nested terraform/variables.tf for the full pattern."
+  type = map(object({
+    project_number = string
+    member_format  = string
+    role           = string
+  }))
+  default = {}
+}

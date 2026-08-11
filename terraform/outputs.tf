@@ -178,6 +178,7 @@ output "secrets" {
     username = google_secret_manager_secret.postgres_user.id
     database = google_secret_manager_secret.postgres_db.id
     host     = google_secret_manager_secret.postgres_host.id
+    port     = google_secret_manager_secret.postgres_port.id
   }
 }
 
@@ -188,8 +189,30 @@ output "secret_names" {
     username = google_secret_manager_secret.postgres_user.secret_id
     database = google_secret_manager_secret.postgres_db.secret_id
     host     = google_secret_manager_secret.postgres_host.secret_id
+    port     = google_secret_manager_secret.postgres_port.secret_id
   }
   sensitive = false
+}
+
+# -----------------------------------------------------------------------------
+# Cross-project IAM grant surface.
+#
+# A consumer that needs to read these secrets at runtime (e.g. a Cloud Run
+# service in another project) should pass the value of
+# `secret_full_resource_names` to its own terraform as a
+# `var.<name>_secret_resource_name`. The IAM binding itself was applied
+# via `google_secret_manager_secret_iam_member.cross_project_grants`
+# inside this module.
+# -----------------------------------------------------------------------------
+output "secret_full_resource_names" {
+  description = "Fully-qualified Secret Manager resource names for all 5 Postgres secrets (consumers reference these as var.<name>_secret_resource_name)"
+  value = {
+    postgres_host     = google_secret_manager_secret.postgres_host.id
+    postgres_port     = google_secret_manager_secret.postgres_port.id
+    postgres_db       = google_secret_manager_secret.postgres_db.id
+    postgres_user     = google_secret_manager_secret.postgres_user.id
+    postgres_password = google_secret_manager_secret.postgres_password.id
+  }
 }
 
 output "current_secrets" {

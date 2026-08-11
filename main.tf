@@ -37,6 +37,8 @@ module "postgres_module" {
 
   assign_external_ip = var.assign_external_ip
 
+  cross_project_iam_grants = var.cross_project_iam_grants
+
   labels = var.labels
 }
 

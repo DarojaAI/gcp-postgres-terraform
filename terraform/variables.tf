@@ -391,3 +391,39 @@ variable "enable_oslogin" {
   type        = bool
   default     = true
 }
+
+# =============================================================================
+# Cross-project IAM grants (shared-DB pattern)
+# =============================================================================
+# Map keyed by consumer name (free-form, used as the for_each key for
+# google_secret_manager_secret_iam_member.cross_project_grants). Each value
+# is the configuration needed to grant one cross-project service account
+# secretAccessor on every Postgres secret this module owns.
+#
+# The IAM binding lives here — in the module that owns the secrets —
+# not in the consumer's terraform. This keeps a single source of truth for
+# who can read these secrets and avoids the apply-order footgun of
+# duplicating the binding in multiple consumer repos.
+#
+# Example (research-orchestrator consolidating its Cognee DB onto this
+# Postgres, per rag_research_tool#1354 + research-orchestrator#42):
+#
+#   cross_project_iam_grants = {
+#     "research-orchestrator" = {
+#       project_number = "123456789012"  # GCP project number of orchestrator
+#       member_format  = "serviceAccount"  # use default Compute SA
+#       role           = "roles/secretmanager.secretAccessor"
+#     }
+#   }
+#
+# For non-Compute SAs pass the full principal literal, e.g.
+#   member_format = "serviceAccount:my-sa@my-project.iam.gserviceaccount.com"
+variable "cross_project_iam_grants" {
+  description = "Map of consumer name -> IAM grant config for cross-project secret access"
+  type = map(object({
+    project_number = string
+    member_format  = string
+    role           = string
+  }))
+  default = {}
+}
