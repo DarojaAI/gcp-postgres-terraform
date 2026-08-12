@@ -1,0 +1,20 @@
+# CODEOWNERS — gcp-postgres-terraform
+
+This module creates GCP CloudSQL PostgreSQL instances and exposes their
+credentials via Secret Manager. Cross-project consumers (services in other
+GCP projects that read these secrets) must be listed here so the
+`gcp-postgres-terraform` maintainer is automatically requested as a reviewer
+when a consumer PR changes its access pattern, and so the maintainer is
+notified when IAM grants for that consumer change.
+
+## Pattern
+
+When a new repo consumes `module "postgres"` from this repo, add a CODEOWNERS
+line for that repo. The owner should be the repo's primary maintainer (often
+the org operator; verify per repo).
+
+## Cross-project consumers
+
+- `DarojaAI/research-orchestrator` — reads Postgres secrets for the
+  `rag_research_tool` DB after PR #42 (`chore/db-consolidate-on-rag-research`,
+  merged 2026-08-11). IAM binding lives in PR #87 against this repo.
