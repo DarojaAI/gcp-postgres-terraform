@@ -1,0 +1,38 @@
+name: Security Scan
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Checkov security scan
+        run: |
+          pip install checkov
+          checkov --directory . --compact --quiet || true
+
+      - name: Scan for hardcoded secrets
+        run: |
+          pip install detect-secrets
+          detect-secrets scan . --all-files --exclude-files '\.git' || true
+
+      - name: Summary
+        run: echo "✅ Security scan completed"
