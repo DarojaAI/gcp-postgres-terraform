@@ -148,6 +148,16 @@ variable "subnet_id" {
   default     = ""
 }
 
+variable "subnet_cidr" {
+  description = "CIDR range of the subnet (required by the nested module for VPC firewall rules; e.g. '10.0.0.0/24')"
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.subnet_cidr, 0))
+    error_message = "subnet_cidr must be a valid CIDR range (e.g., '10.0.0.0/24')"
+  }
+}
+
 variable "vpc_connector_cidr" {
   description = "DEPRECATED: VPC connector is now created by vpc-infra module. This variable is ignored."
   type        = string
@@ -311,4 +321,14 @@ variable "enable_oslogin" {
   description = "Enable OS Login for SSH access"
   type        = bool
   default     = true
+}
+
+variable "cross_project_iam_grants" {
+  description = "Map of consumer name -> IAM grant config for cross-project secret access. The IAM binding lives in the module that owns the secrets, not in the consumer's terraform. See nested terraform/variables.tf for the full pattern."
+  type = map(object({
+    project_number = string
+    member_format  = string
+    role           = string
+  }))
+  default = {}
 }
