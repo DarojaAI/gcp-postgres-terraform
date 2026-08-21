@@ -10,6 +10,28 @@ PostgreSQL provisioning for GCP Compute Engine — extracted from [dev-nexus](ht
 
 ---
 
+## What this module actually provides — PostgreSQL VM, NOT Cloud SQL
+
+This module provisions a **self-managed PostgreSQL instance on a Compute Engine VM**, not Cloud SQL.
+If you landed here from a repo name like `gcp-postgres-terraform`, you should know the following
+before relying on this module in production:
+
+- **Connection model:** Direct TCP to the VM's internal IP over VPC. There is no Cloud SQL Proxy
+  and no `sqlconnect` (cloud-sql-proxy) dependency. Clients must be VPC-reachable.
+- **Instance type:** Configurable `machine_type` (default `e2-micro`; see `terraform/variables.tf`).
+  You manage OS, PostgreSQL, and extensions yourself.
+- **Availability:** No Cloud SQL-grade automatic failover. HA relies on the single VM. Disk
+  snapshots (`terraform/postgres_module.tf`) provide disaster recovery, not high availability.
+- **Backups:** Automated daily pg_dump to GCS via cron (`terraform/scripts/backup.sh`). This is
+  not point-in-time recovery (PITR) — you cannot restore to an arbitrary timestamp.
+- **Scalability:** Vertical scaling only (change `machine_type`). No read replicas, no
+  connection pooling via Cloud SQL, no automatic storage scaling.
+
+See `terraform/postgres_module.tf` for the core provisioning and `terraform/variables.tf` for the
+full list of configurable inputs.
+
+---
+
 ## Features
 
 - **PostgreSQL on GCP Compute Engine** (not Cloud SQL) with configurable version (14/15/16)
@@ -148,6 +170,24 @@ module "postgres" {
 ```
 
 The `init_sql` is executed as `psql postgres postgres` on the VM's first startup.
+
+### Cross-project IAM with a dedicated service account
+
+Avoid using the default Compute Engine SA (`serviceAccount:<project_number>-compute@developer.gserviceaccount.com`). It carries broad default scopes (`roles/compute.osLogin`, `roles/editor`). Always pass a dedicated service account:
+
+```hcl
+module "postgres" {
+  source = "github.com/DarojaAI/gcp-postgres-terraform//terraform?ref=v1.27"
+  # ...
+  cross_project_iam_grants = {
+    "my-consumer-app" = {
+      project_number = "123456789012"  # GCP project number of consumer
+      member_format  = "serviceAccount:my-app-consumer@123456789012.iam.gserviceaccount.com"
+      role           = "roles/secretmanager.secretAccessor"
+    }
+  }
+}
+```
 
 ### Secret Manager Synchronization
 

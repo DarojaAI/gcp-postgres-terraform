@@ -418,8 +418,24 @@ variable "enable_oslogin" {
 #
 # For non-Compute SAs pass the full principal literal, e.g.
 #   member_format = "serviceAccount:my-sa@my-project.iam.gserviceaccount.com"
+#
+# IMPORTANT: Avoid the default Compute Engine SA
+# (serviceAccount:<project_number>-compute@developer.gserviceaccount.com).
+# It carries broad default scopes (roles/compute.osLogin, roles/editor) and
+# violates least privilege. Always pass a dedicated service account with only
+# the permissions your workload needs.
+#
+# Example — dedicated SA:
+#
+#   cross_project_iam_grants = {
+#     "my-app" = {
+#       project_number = var.consumer_project_number
+#       member_format  = "serviceAccount:my-app-consumer@${var.consumer_project_number}.iam.gserviceaccount.com"
+#       role           = "roles/secretmanager.secretAccessor"
+#     }
+#   }
 variable "cross_project_iam_grants" {
-  description = "Map of consumer name -> IAM grant config for cross-project secret access"
+  description = "Map of consumer name -> IAM grant config for cross-project secret access. Avoid the default Compute SA — use a dedicated service account with minimal scopes."
   type = map(object({
     project_number = string
     member_format  = string
