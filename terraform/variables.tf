@@ -434,7 +434,7 @@ variable "enable_oslogin" {
 #       role           = "roles/secretmanager.secretAccessor"
 #     }
 #   }
-#variable "cross_project_iam_grants" {
+variable "cross_project_iam_grants" {
   description = "Map of consumer name -> IAM grant config for cross-project secret access. Avoid the default Compute SA — use a dedicated service account with minimal scopes."
   type = map(object({
     project_number = string
