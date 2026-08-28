@@ -332,3 +332,9 @@ variable "cross_project_iam_grants" {
   }))
   default = {}
 }
+
+variable "dev_nexus_secret_reader_sa" {
+  description = "Service account email for the dev-nexus Secret Manager viewer grant. See nested module for details. "
+  type        = string
+  default     = ""
+}

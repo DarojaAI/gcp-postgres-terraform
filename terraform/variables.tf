@@ -443,3 +443,9 @@ variable "cross_project_iam_grants" {
   }))
   default = {}
 }
+
+variable "dev_nexus_secret_reader_sa" {
+  description = "Service account email that needs read access to project-wide Secret Manager metadata (rotation dates, version counts). Grants `roles/secretmanager.viewer`; not `secretAccessor` because the consumer (dev-nexus) needs metadata only, not secret values. When empty, no IAM grant is created. e.g., 'dev-nexus-sa@globalbiting-dev.iam.gserviceaccount.com'."
+  type        = string
+  default     = ""
+}
