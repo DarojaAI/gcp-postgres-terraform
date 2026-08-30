@@ -41,16 +41,30 @@ locals {
 }
 
 # NAT router lookup for preflight validation
-# Router and NAT names follow gcp-vpc-egress-terraform naming:
-#   router = "{vpc_name}-router" (e.g., dev-nexus-dev-vpc-router)
-#   nat    = "{vpc_name}-nat"   (e.g., dev-nexus-dev-vpc-nat)
+# Router and NAT names follow gcp-vpc-egress-terraform naming as of
+# vpc_egress v1.2.2 (#FIXME-mechanism: the upstream rename in v1.2.2 moved
+# the prefix; older consumer refs must use the new names or vpc_egress
+# apply --target=module.vpc_egress will fail at data-source lookup).
+#   router = "router-{vpc_name}" (e.g., router-dev-nexus-dev-vpc)
+#   nat    = "nat-{vpc_name}"    (e.g., nat-dev-nexus-dev-vpc)
+#
+# This was the pre-v1.2.2 contract (still pinned by older consumers
+# on v1.2.x branch):
+#   router = "{vpc_name}-router"
+#   nat    = "{vpc_name}-nat"
+#
+# We do NOT maintain both names in a single data source. Releasing this
+# fix as a minor version bump on top of v4.4.x because the upstream
+# vpc_egress rename is irreversible at the resource level; any consumer
+# pinned to vpc_egress < v1.2.2 should hold this module at the prior
+# peer version.
 data "google_compute_router_nat" "main" {
   count = var.enable_cloud_nat && !var.assign_external_ip ? 1 : 0
   # Use var.nat_project_id if set, otherwise fall back to var.project_id
   project = var.nat_project_id != "" ? var.nat_project_id : var.project_id
   region  = var.region
-  router  = "${var.vpc_name}-router"
-  name    = "${var.vpc_name}-nat"
+  router  = "router-${var.vpc_name}"
+  name    = "nat-${var.vpc_name}"
 }
 
 # Enable required GCP APIs
