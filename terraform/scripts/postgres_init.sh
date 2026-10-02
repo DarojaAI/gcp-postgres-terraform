@@ -322,7 +322,7 @@ run_step 12 "Enable Extensions" '
 
   echo "Enabling common extensions...";
   sudo -u postgres psql << SQL
-CREATE EXTENSION IF NOT EXISTS uuid-ossp;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS hstore;
 SQL
