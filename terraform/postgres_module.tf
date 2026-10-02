@@ -435,25 +435,13 @@ resource "google_compute_instance" "postgres" {
 
     # NOTE: enable_display ignore_changes removed — verified clean in v7.31.0 (2026-05-22)
 
-    # TODO(https://github.com/DarojaAI/gcp-postgres-terraform/issues/69): metadata_startup_script ignore_changes
-    #
-    # Root cause: The startup script contains the DB password — marked sensitive by the GCP provider.
-    # Sensitive values can't be compared in Terraform state, so any config change (e.g., adding init_sql)
-    # triggers replacement even when the VM is healthy. The create_before_destroy replacement fails with 409
-    # due to disk attachment ordering (disk stays attached to old instance during creation window).
-    #
-    # Trade-off: This masks drift detection. If someone modifies the VM's startup script externally,
-    # Terraform won't notice. Safe during migration because:
-    #   - init_sql is idempotent (schema applied via Atlas migrations separately)
-    #   - VM replacement would lose data if not handled carefully
-    #
-    # Resolving options:
-    #   1. Accept one VM replacement after migration stabilizes, then remove ignore_changes
-    #   2. Rework init_sql injection to use separate mechanism (SSH/cloud-init) so startup script stays static
-    #   3. Fix disk dependency ordering in create_before_destroy (complex GCP workaround)
-    ignore_changes = [
-      metadata_startup_script,
-    ]
+    # Resolved via #99 (2026-10-02): the DB password is no longer embedded in the
+    # startup script — it is fetched at boot from Secret Manager using the VM SA's
+    # roles/secretmanager.secretAccessor grant. The script is now static and diffable,
+    # so ignore_changes is removed and drift detection is fully restored.
+    # (Historical: the old ignore_changes workaround was added in #69 because the
+    # embedded password made the script sensitive and un-diffable, forcing VM
+    # replacement on every config change.)
 
     precondition {
       condition     = var.assign_external_ip || !var.enable_cloud_nat || length(data.google_compute_router_nat.main) > 0
@@ -494,24 +482,24 @@ resource "google_compute_instance" "postgres" {
   }
 
   metadata_startup_script = templatefile("${path.module}/scripts/postgres_init.sh", {
-    db_name              = var.postgres_db_name
-    db_user              = var.postgres_db_user
-    db_password          = var.postgres_db_password
-    postgres_version     = var.postgres_version
-    backup_bucket        = google_storage_bucket.postgres_backups.name
-    data_disk_device     = "sdb"
-    pgvector_enabled     = var.pgvector_enabled
-    init_sql             = var.init_sql
-    max_connections      = var.max_connections
-    shared_buffers       = var.shared_buffers
-    work_mem             = var.work_mem
-    maintenance_work_mem = var.maintenance_work_mem
-    log_all_statements   = var.log_all_statements
-    retry_delay          = "2"
-    internal_ip          = google_compute_address.postgres_ip.address
-    INTERNAL_IP          = google_compute_address.postgres_ip.address
-    subnet_cidr          = var.subnet_cidr
-    postgres_port        = var.postgres_port
+    db_name               = var.postgres_db_name
+    db_user               = var.postgres_db_user
+    db_password_secret_id = google_secret_manager_secret.postgres_password.id
+    postgres_version      = var.postgres_version
+    backup_bucket         = google_storage_bucket.postgres_backups.name
+    data_disk_device      = "sdb"
+    pgvector_enabled      = var.pgvector_enabled
+    init_sql              = var.init_sql
+    max_connections       = var.max_connections
+    shared_buffers        = var.shared_buffers
+    work_mem              = var.work_mem
+    maintenance_work_mem  = var.maintenance_work_mem
+    log_all_statements    = var.log_all_statements
+    retry_delay           = "2"
+    internal_ip           = google_compute_address.postgres_ip.address
+    INTERNAL_IP           = google_compute_address.postgres_ip.address
+    subnet_cidr           = var.subnet_cidr
+    postgres_port         = var.postgres_port
   })
 
   service_account {
@@ -536,7 +524,10 @@ resource "google_compute_instance" "postgres" {
   depends_on = [
     google_project_service.compute,
     google_storage_bucket.postgres_backups,
-    google_compute_disk.postgres_data
+    google_compute_disk.postgres_data,
+    # Secret version must exist before boot: startup script fetches the
+    # password from Secret Manager via the VM SA (issue #99).
+    google_secret_manager_secret_version.postgres_password
   ]
 }
 
