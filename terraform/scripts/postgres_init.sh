@@ -82,7 +82,18 @@ exec 2> >(tee -a "$LOG_FILE" >&2)
 # Template variables (injected by Terraform)
 DB_NAME='${db_name}'
 DB_USER='${db_user}'
-DB_PASSWORD='${db_password}'
+# DB password is fetched from Secret Manager at boot (issue #99) instead of
+# being embedded in the startup script. The VM's service account holds
+# roles/secretmanager.secretAccessor on the secret; a metadata-server token
+# is used to call the Secret Manager API (avoids a gcloud CLI dependency).
+DB_PASSWORD_SECRET_ID='${db_password_secret_id}'
+_iam_token="$(curl -fsS -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')"
+DB_PASSWORD="$(curl -fsS -H "Authorization: Bearer $${_iam_token}" \
+  "https://secretmanager.googleapis.com/v1/$${DB_PASSWORD_SECRET_ID}/versions/latest:access" \
+  | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["payload"]["data"]).decode())')"
+unset _iam_token
 POSTGRES_VERSION='${postgres_version}'
 BACKUP_BUCKET='${backup_bucket}'
 DATA_DISK_DEVICE='${data_disk_device}'
