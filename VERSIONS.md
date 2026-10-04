@@ -1,6 +1,6 @@
 # Version Tracking: gcp-postgres-terraform
 
-## Current Version: 2.0.0
+## Current Version: 4.5.0
 
 ### Module Details
 - **Name:** gcp-postgres-terraform
